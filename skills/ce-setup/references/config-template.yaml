@@ -2,7 +2,8 @@
 # Copy to .compound-engineering/config.yaml in your project root (team defaults).
 # Optional override: .compound-engineering/config.local.yaml, same keys.
 # Ordinary keys: local wins when set, then this file, then the skill default.
-# docs_root is repo layout -- set it only here; local docs_root is ignored.
+# The four cross-model review keys also fall through to $HOME/.compound-engineering/config.yaml.
+# docs_root is repo layout -- set it only here; local and user-global docs_root are ignored.
 # All settings are optional. Invalid ordinary values continue to the next layer.
 # docs_root fails closed on an unusable value.
 
@@ -103,11 +104,14 @@
 # plan_skip_scoping_confirm: true   # true | false (default: false)
 
 # --- Cross-model review policy and preference ---
+# These four keys resolve in order: config.local.yaml, this repo config.yaml,
+# then $HOME/.compound-engineering/config.yaml, then their skill defaults. This
+# user-global fallback applies to no other CE keys.
 # `cross_model_review_mode` decides whether ce-doc-review and ce-code-review may
 # automatically send review content (diffs, documents) to a second model
 # provider when their conditional cross-model pass activates. `off` skips that
 # pass before any route is chosen or process starts, leaves every local
-# reviewer in place, and reports "disabled by checkout config" instead of an
+# reviewer in place, and reports "disabled by config" instead of an
 # availability failure. `auto` keeps the current behavior. A direct request in
 # conversation ("use codex as the independent reviewer this time") overrides
 # `off` for that run; a conversation prohibition overrides `auto`.
