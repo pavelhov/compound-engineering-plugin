@@ -428,6 +428,45 @@ GitHub Releases are the canonical release-notes surface. The root [`CHANGELOG.md
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, and [`docs/development.md`](docs/development.md) for loading a local checkout into each harness.
 
+## Maintaining this fork
+
+This fork uses two long-lived branches:
+
+- `main` is a clean, fast-forward-only mirror of `EveryInc/compound-engineering-plugin:main`. Do not commit fork-specific changes directly to it.
+- `development` contains the latest upstream code plus this fork's changes. Create normal personal feature branches from `development`.
+
+The remotes are deliberately separated: `origin` is the writable fork, while `upstream` fetches only the official `main` branch and rejects pushes. The one-time setup is:
+
+```bash
+git remote add -t main --no-tags upstream https://github.com/EveryInc/compound-engineering-plugin.git
+git remote set-url --push upstream DISABLED
+git config remote.upstream.prune true
+```
+
+To bring both long-lived branches up to date without rewriting history:
+
+```bash
+git fetch upstream --prune
+
+git switch main
+git merge --ff-only upstream/main
+git push origin main
+
+git switch development
+git merge main
+git push origin development
+```
+
+Create fork-specific work from `development`:
+
+```bash
+git switch development
+git pull --ff-only origin development
+git switch -c codex/<short-topic>
+```
+
+For a change intended to be submitted to the official repository, create the topic branch from the clean `main` branch instead. If `main` cannot fast-forward to `upstream/main`, stop and inspect the divergence rather than resetting or force-pushing.
+
 ## Documentation
 
 | | |
