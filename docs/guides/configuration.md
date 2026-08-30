@@ -1,15 +1,23 @@
 # Compound Engineering configuration
 
-Compound Engineering keeps optional repo defaults in `.compound-engineering/config.yaml`. Ordinary keys may also live in `.compound-engineering/config.local.yaml`, which overrides the repo file per key. Both files are visible to every supported harness that opens the same checkout.
+Compound Engineering keeps optional repo defaults in `.compound-engineering/config.yaml`. Ordinary keys may also live in `.compound-engineering/config.local.yaml`, which overrides the repo file per key. The four cross-model review keys also have a user-global fallback in `$HOME/.compound-engineering/config.yaml`. All other keys are repo-scoped.
 
-Run `/ce-setup` to create `config.yaml` and refresh the committed `.compound-engineering/config.example.yaml`. Setup does not create `config.local.yaml`. Uncomment only the keys you want to change. Do not put credentials, CLI commands, or harness flags in either file.
+Run `/ce-setup` to create `config.yaml` and refresh the committed `.compound-engineering/config.example.yaml`. Setup does not create `config.local.yaml` or the user-global file. Uncomment only the keys you want to change. Do not put credentials, CLI commands, or harness flags in any CE config file.
 
 ## How keys resolve
 
 - **Ordinary keys:** read `config.local.yaml`, then `config.yaml`. The first active (non-commented) value wins. A missing file is skipped. Invalid or empty scalars continue to the next layer, then the skill default. A present list or map, including empty, replaces the whole key.
-- **`docs_root`:** read only from `config.yaml`. A `docs_root` in `config.local.yaml` is ignored.
-- **Gitignore does not change resolution.** Either file works whether ignored or committed.
+- **Cross-model review keys only:** `cross_model_review_mode`, `cross_model_peer`, `cross_model_model`, and `cross_model_effort` read `config.local.yaml` and then repo `config.yaml` when a repository root resolves; otherwise both repo layers are skipped. They then read `$HOME/.compound-engineering/config.yaml` when the user's home directory resolves; otherwise that layer is skipped. Missing files are skipped; the first active valid scalar wins. Empty, commented, or invalid values continue to the next available layer and then the skill default.
+- **`docs_root`:** read only from repo `config.yaml`. A `docs_root` in `config.local.yaml` or `$HOME/.compound-engineering/config.yaml` is ignored.
+- **Gitignore does not change repo-layer resolution.** Either repo file works whether ignored or committed; the user-global file lives outside the repository.
 - A current-task instruction still wins over config. Session and project instructions already in context can override or narrow it.
+
+For example, this user-wide preference applies wherever neither repo layer chooses a peer:
+
+```yaml
+# $HOME/.compound-engineering/config.yaml
+cross_model_peer: cursor
+```
 
 ## Artifact root
 
@@ -33,7 +41,7 @@ Config is a default, not another agent-instructions file:
 - Each skill's runtime contract still decides whether a setting applies. For example, pipeline execution forces planning artifacts to markdown, and model elevation takes effect on whichever harness can reach the requested model.
 - Some skills define a more specific preference order for their own routing. Their skill page documents that order.
 
-Committed `config.yaml` is shared across worktrees of the same project. `config.local.yaml` is per-checkout. CE Work resolves delegation before it creates detached worker worktrees, so an already-selected route is carried into that run.
+Committed `config.yaml` is shared across worktrees of the same project. `config.local.yaml` is per-checkout. The user-global fallback applies only to the four cross-model review keys and is shared by that user's checkouts on hosts using the same home directory. CE Work resolves delegation before it creates detached worker worktrees, so an already-selected route is carried into that run.
 
 ## Options
 
@@ -46,7 +54,7 @@ All settings are optional. Commented examples are documentation, not active valu
 | [`ce-plan`](./ce-plan.md) | `plan_skip_scoping_confirm` | `true` skips the normal pre-plan scope confirmation; default `false`. It does not suppress genuine blockers or the post-plan menu. |
 | [`ce-plan`](./ce-plan.md), [`ce-brainstorm`](./ce-brainstorm.md) | `plan_model`, `brainstorm_model` | Model elevation: send the reasoning-heavy step to a named model (e.g. `fable`, `opus`) instead of the session model. Value is a model alias; a prompt request or an orchestrator's `plan_model:<alias>` carrier (e.g. from `lfg`, honored even in pipeline mode) overrides it. Takes effect on every harness — natively where the host serves the model, else via the Claude CLI, else inline. No default (elevation off). |
 | [`ce-work`](./ce-work.md), [`lfg`](./lfg.md) | `work_engine_mode`, `work_engine_preferences` | Ordered implementation-author preferences. Mode is `off`, `prefer`, or `require`; each entry has a `harness` and optional `model`. See [Implementation routing](#implementation-routing). |
-| [`ce-code-review`](./ce-code-review.md), [`ce-doc-review`](./ce-doc-review.md) | `cross_model_review_mode` | Whether the automatic cross-model pass may send review content to a second provider: `auto` (default, current behavior) or `off`. `off` is evaluated before any peer or route is resolved, keeps every local reviewer and the local adversarial fallback, and is reported as "disabled by checkout config" rather than as an unavailable route. A direct conversation request for a peer overrides `off` for that run; a conversation prohibition overrides `auto`. |
+| [`ce-code-review`](./ce-code-review.md), [`ce-doc-review`](./ce-doc-review.md) | `cross_model_review_mode` | Whether the automatic cross-model pass may send review content to a second provider: `auto` (default, current behavior) or `off`. `off` is evaluated before any peer or route is resolved, keeps every local reviewer and the local adversarial fallback, and is reported as "disabled by config" rather than as an unavailable route. A direct conversation request for a peer overrides `off` for that run; a conversation prohibition overrides `auto`. This key, with the other three `cross_model_*` keys below, falls through from local and repo config to `$HOME/.compound-engineering/config.yaml`; no other CE key uses that user-global layer. |
 | [`ce-code-review`](./ce-code-review.md), [`ce-doc-review`](./ce-doc-review.md) | `cross_model_peer` | Preferred cross-model review target: `codex`, `claude`, `grok`, `cursor`, or `composer`. `grok` binds the native grok CLI when it is installed, and falls back to Grok through Cursor only when that CLI is absent and Cursor is a sanctioned recipient. The review skills still apply host-independence and route-availability gates. |
 | [`ce-code-review`](./ce-code-review.md), [`ce-doc-review`](./ce-doc-review.md) | `cross_model_model`, `cross_model_effort` | Pin the resolved peer target's model (an alias such as `fable` or a full id such as `claude-opus-5`, same family as the target; a codex id may carry its serving provider's namespace, such as `openai.gpt-5.6-sol`, when the CLI routes through a non-default `model_provider`) and reasoning effort (claude `low`..`max`, codex `minimal`..`xhigh`, grok `low`..`high`; cursor-agent routes accept none). Unset keeps the skills' editorial mapping. A value the peer cannot honor skips the pass with a stated reason rather than substituting; a conversation request overrides both. |
 | [`ce-commit-push-pr`](./ce-commit-push-pr.md) | `pr_teaching_section`, `pr_teaching_archive`, `auto_babysit` | Toggle PR concept teaching, opt into explainer archival, or opt out of the default babysit handoff. Defaults: `true`, `false`, and `true`. |
@@ -79,6 +87,7 @@ Current-task wording can select a different route for one run without editing co
 ## Safe maintenance
 
 - Commit `config.yaml` when you want team defaults. Keep `config.local.yaml` out of git if it holds personal or checkout-only choices (`/ce-setup` can add `.compound-engineering/*.local.yaml`).
+- Put user-wide cross-model review defaults only in `$HOME/.compound-engineering/config.yaml`; repo layers and current-task instructions can override them.
 - Put durable team-wide *instructions* in the project's normal agent-instructions mechanism. Team *defaults* for CE keys may live in `config.yaml`.
 - Prefer per-run instructions for one-off choices.
 - Re-run `/ce-setup` after plugin upgrades to refresh the committed example and diagnose retired or malformed settings.
