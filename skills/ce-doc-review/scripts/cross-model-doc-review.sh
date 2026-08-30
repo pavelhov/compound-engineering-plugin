@@ -89,7 +89,7 @@ case "$TRANSIENT_RETRY_DELAY_SECS" in ''|*[!0-9]*) skip "transient retry delay m
 # ONE model per provider at high reasoning, except codex on extra-high (supersedes
 # the old per-lens sol/terra split). Concrete IDs are the CURRENT instance of the
 # tier principle and the single maintenance point when model families change.
-# A checkout may override the model (CROSS_MODEL_MODEL_OVERRIDE_TARGET +
+# Resolved config may override the model (CROSS_MODEL_MODEL_OVERRIDE_TARGET +
 # CROSS_MODEL_MODEL_OVERRIDE, same target/family only) and the reasoning effort
 # (CROSS_MODEL_EFFORT_OVERRIDE, validated per route); both fail closed.
 # codex: luna/xhigh is the benchmarked pick on API dollars (~0.30x sol-medium, tied

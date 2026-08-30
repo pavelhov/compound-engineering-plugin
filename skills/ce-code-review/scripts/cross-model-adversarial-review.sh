@@ -77,7 +77,7 @@ case "$TRANSIENT_RETRY_DELAY_SECS" in ''|*[!0-9]*) skip "transient retry delay m
 # --- model + reasoning per provider ----------------------------------------
 # ONE editorial model/reasoning mapping per provider. Concrete IDs are the CURRENT
 # instance of the tier principle and the single maintenance point when families change.
-# A checkout may override the model (CROSS_MODEL_MODEL_OVERRIDE_TARGET +
+# Resolved config may override the model (CROSS_MODEL_MODEL_OVERRIDE_TARGET +
 # CROSS_MODEL_MODEL_OVERRIDE, same target/family only) and the reasoning effort
 # (CROSS_MODEL_EFFORT_OVERRIDE, validated per route); both fail closed.
 # Keep these in sync with ce-doc-review's script (parity-tested in CI).
