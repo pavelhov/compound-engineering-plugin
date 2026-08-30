@@ -432,8 +432,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, and [`docs/development.md`](
 
 This fork uses two long-lived branches:
 
-- `main` is a clean, fast-forward-only mirror of `EveryInc/compound-engineering-plugin:main`. Do not commit fork-specific changes directly to it.
-- `development` contains the latest upstream code plus this fork's changes. Create normal personal feature branches from `development`.
+- `development` integrates the latest official upstream code with this fork's changes. Create normal personal feature branches from it.
+- `main` is the stable fork branch. Promote tested `development` changes to it through a pull request; do not push directly to it.
 
 The remotes are deliberately separated: `origin` is the writable fork, while `upstream` fetches only the official `main` branch and rejects pushes. The one-time setup is:
 
@@ -443,19 +443,20 @@ git remote set-url --push upstream DISABLED
 git config remote.upstream.prune true
 ```
 
-To bring both long-lived branches up to date without rewriting history:
+To integrate new official upstream changes into `development` without rewriting history:
 
 ```bash
 git fetch upstream --prune
-
-git switch main
-git merge --ff-only upstream/main
-git push origin main
-
 git switch development
-git merge main
+git pull --ff-only origin development
+git merge upstream/main
+
+bun run release:validate
+bun run test
 git push origin development
 ```
+
+After validation passes, open a pull request from `development` to `main`. This keeps `main` stable while preserving the upstream and fork histories.
 
 Create fork-specific work from `development`:
 
@@ -465,7 +466,14 @@ git pull --ff-only origin development
 git switch -c codex/<short-topic>
 ```
 
-For a change intended to be submitted to the official repository, create the topic branch from the clean `main` branch instead. If `main` cannot fast-forward to `upstream/main`, stop and inspect the divergence rather than resetting or force-pushing.
+For a change intended for the official repository, create the topic branch directly from `upstream/main` instead of carrying this fork's changes:
+
+```bash
+git fetch upstream --prune
+git switch -c codex/<short-topic> upstream/main
+```
+
+If an upstream merge conflicts with fork work, resolve it on `development` or a feature branch. Do not reset or force-push either long-lived branch.
 
 ## Documentation
 
