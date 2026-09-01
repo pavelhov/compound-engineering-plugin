@@ -3137,6 +3137,27 @@ print(json.dumps({
     expect(d.trajectory.heads_since_progress).toBe(1) // head moved s1->s2 between agent ticks; not starved by the poll
   }, 15000)
 
+  test("invariant_rounds count unique heads for a resolver-supplied key (#1575)", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inv-rounds-"))
+    const state = path.join(dir, "state")
+    const t = (head: string) => ({
+      ...FAILING,
+      head_sha: head,
+      checks: [],
+      threads: [{ thread_id: "T1", last_comment_id: head, last_comment_at: head }],
+    })
+    snapshot(state, fetchFile(dir, "h1.json", t("h1")))
+    mark(state, ["--thread", "T1", "--invariant-key", "golden-boundary"])
+    snapshot(state, fetchFile(dir, "h2.json", t("h2")))
+    mark(state, ["--thread", "T1", "--invariant-key", "golden-boundary"])
+    // Two recorded rounds is the trigger state: the next fix would be the third.
+    const atTrigger = snapshot(state, fetchFile(dir, "h3.json", t("h3")))
+    expect(atTrigger.trajectory.invariant_rounds).toEqual([{ key: "golden-boundary", rounds: 2 }])
+    mark(state, ["--thread", "T1", "--invariant-key", "golden-boundary"])
+    const d = snapshot(state, fetchFile(dir, "h3b.json", { ...FAILING, head_sha: "h3", checks: [], threads: [] }))
+    expect(d.trajectory.invariant_rounds).toEqual([{ key: "golden-boundary", rounds: 3 }])
+  })
+
   test("check recurrence catches a CLEAR observed only on a watch poll (C1)", () => {
     const sd = path.join(dir, "recurwatch")
     const RED = { key: "CI/x", name: "x", status: "COMPLETED", conclusion: "FAILURE", details_url: "u" }
@@ -4843,6 +4864,9 @@ print(json.dumps({"ids": [t["thread_id"] for t in threads], "calls": calls}))
     expect(later.base_ref_blocker).toBeNull()
     expect(later.mergeability_certain).toBe(true)
     expect(wakeReason(later)).toBe("merge-ready")
+    // Presentation-only degrade must not reset the quiet clock (#1562).
+    expect(JSON.parse(readFileSync(statePath, "utf8")).last_change_at).toBe("2026-07-17T12:00:00+00:00")
+    expect(wakeReason(later, 300)).toBe("merge-ready")
 
     // A pending (unclassified) head forces uncertainty even through the stale-computation degrade.
     const pendingStale = snapshot(state, fetchFile(dir, "stale-race-pending.json", { ...race,
@@ -4867,6 +4891,36 @@ print(json.dumps({"ids": [t["thread_id"] for t in threads], "calls": calls}))
       head_sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       base: { ...race.base, merge_parent_oids: ["1111111111111111111111111111111111111111", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] } }))
     expect(moved.base_ref_blocker).toBe("race")
+  })
+
+  test("genuine base identity transitions still change the settle signature", () => {
+    const frozen = "2026-07-17T12:00:00+00:00"
+    const baseCore = {
+      host: "github.com", repository: "o/r", ref: "main",
+      oid: "2222222222222222222222222222222222222222",
+      graphql_oid: "2222222222222222222222222222222222222222",
+      historical_oid: "1111111111111111111111111111111111111111",
+      merge_parent_oids: ["2222222222222222222222222222222222222222", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    }
+    const green = {
+      ...FAILING, merge_state_status: "CLEAN", review_decision: "APPROVED",
+      checks: [{ key: "CI/test", name: "test", status: "COMPLETED", conclusion: "SUCCESS", details_url: "u" }],
+      threads: [], head_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      base: { ...baseCore, identity: "probe-error" },
+    }
+    const file = fetchFile(dir, "identity-steps.json", green)
+    snapshot(state, file)
+    const statePath = path.join(state, "state.json")
+    const identities = ["race", "mergeability-pending", "current"]
+    for (const identity of identities) {
+      const persisted = JSON.parse(readFileSync(statePath, "utf8"))
+      persisted.last_change_at = frozen
+      writeFileSync(statePath, JSON.stringify(persisted))
+      snapshot(state, fetchFile(dir, `identity-${identity}.json`, {
+        ...green, base: { ...baseCore, identity },
+      }))
+      expect(JSON.parse(readFileSync(statePath, "utf8")).last_change_at).not.toBe(frozen)
+    }
   })
 
   // Pipelined stack traversal: the watcher polls the active (upper) layer and keeps probing the
