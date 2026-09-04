@@ -70,8 +70,8 @@ export type Grade = {
   /** Files the run must have committed — the positive half of committed_must_not. */
   committed_must?: string[]
   committed_must_not?: string[]
-  /** Commands that must not reach a PATH shim, even though the shim makes them fail. */
-  shim_must_not?: string[]
+  /** Text that must not appear in the PATH shim log. */
+  shim_log_must_not?: string[]
   workspace_contains?: Array<{ path: string; needle: string }>
 }
 
@@ -90,7 +90,7 @@ export type Scenario = {
    * uses this rather than git_untracked.
    */
   git_staged?: string[]
-  shim_git_push?: boolean
+  shim_git_push?: true | { requiredHeadMarkerPath: string }
   shim_gh_pr?: boolean
   /** Configure a fake `origin` whose `main` is the seed commit, so the shipping tail takes the push/PR path instead of the local-commit path. Pair with shim_git_push. */
   git_remote?: boolean
@@ -108,6 +108,9 @@ export type Scenario = {
 }
 
 const FIX = "tests/skill-eval-cell/fixtures"
+
+const SETUP_INSTRUCTIONS_TASK =
+  "Use the ce-setup skill to check this repository's Compound Engineering setup. For every change it would offer, show the exact text and where in the file it would go."
 
 
 /** Cheap read-only cells that pin a real decision. Live mutation/delegation is not in this set. */
@@ -517,6 +520,30 @@ The same decision owns open review thread PRRT_ci_contract_7 at https://github.c
     },
   },
   {
+    id: "ce-commit-push-pr/project-publishing-gate",
+    post_only: true,
+    skill: "ce-commit-push-pr",
+    cohort: "resized",
+    key_behavior: "mutation",
+    read_only: false,
+    git_init: true,
+    git_remote: true,
+    git_untracked: ["src/greet.js"],
+    shim_git_push: { requiredHeadMarkerPath: ".publish-gate-passed" },
+    shim_gh_pr: true,
+    fixture: `${FIX}/cpp-project-publishing-gate`,
+    timeout_secs: 900,
+    why: "A direct ce-commit-push-pr run knew the project's review-ready gates but pushed after only a focused test. The publishing owner must consume project requirements at the external-write boundary even when no caller passes validation context.",
+    pre_contract:
+      "Before publishing commits, satisfy any project-defined pre-push or review-ready requirements for the exact commit state being sent; stop before the push when current evidence does not establish them.",
+    task: `Commit, push, and open a PR for the library change.`,
+    grade: {
+      committed_must: ["greet.js"],
+      workspace_contains: [{ path: ".publish-gate-passed", needle: "verified " }],
+      shim_log_must_not: ["precondition-missing git push"],
+    },
+  },
+  {
     id: "ce-commit-push-pr/babysit-standing-optout",
     skill: "ce-commit-push-pr",
     cohort: "resized",
@@ -689,7 +716,7 @@ Do not push and do not open a PR. Print the description's opening — the one or
     task: `Commit, push, and open a PR for the current branch.`,
     grade: {
       must_exclude: ["gh pr create"],
-      shim_must_not: ["pr create"],
+      shim_log_must_not: ["pr create"],
     },
   },
   {
@@ -1550,6 +1577,110 @@ Units:
     grade: {
       files_read_post: ["references/install-riffrec.md"],
       must_include: ["README", "zip"],
+      actions: "none",
+    },
+  },
+  {
+    id: "ce-setup/instruction-file-gap-offers-store-and-directive",
+    post_only: true,
+    skill: "ce-setup",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    fixture: `${FIX}/setup-instructions-gap`,
+    timeout_secs: 900,
+    why: "Step 9 offers the knowledge-store line in the file's own structure with the concrete path, then offers the compounding directive verbatim from the bundled asset. Paraphrasing the directive forks the bar ce-compound enforces.",
+    pre_contract:
+      "Setup offers a store mention when the instruction file does not convey the store, and offers the compounding directive verbatim when the store is tracked and no standing ce-compound instruction exists.",
+    task: SETUP_INSTRUCTIONS_TASK,
+    grade: {
+      workspace_read: ["AGENTS.md"],
+      must_include: [
+        "docs/solutions/  # documented solutions to past problems",
+        "Add a standing instruction so agents capture qualifying learnings with ce-compound?",
+        "After a solved, verified problem, automatically invoke the `ce-compound` skill with `mode:non-interactive`",
+      ],
+      actions: "none",
+    },
+  },
+  {
+    id: "ce-setup/instruction-file-covered-offers-nothing",
+    post_only: true,
+    skill: "ce-setup",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    fixture: `${FIX}/setup-instructions-covered`,
+    timeout_secs: 900,
+    why: "The store mention is judged semantically and the directive check is any-wording, so a file that already carries both gets no offer. Re-offering is the nag this step must not become.",
+    pre_contract:
+      "Setup offers nothing for an instruction file that already conveys the store and carries a standing ce-compound instruction.",
+    task: SETUP_INSTRUCTIONS_TASK,
+    grade: {
+      workspace_read: ["AGENTS.md"],
+      must_include: ["already"],
+      must_exclude: ["AGENTS.md"],
+      actions: "none",
+    },
+  },
+  {
+    id: "ce-compound-refresh/worth-lens-intent-confirms-before-loading",
+    post_only: true,
+    skill: "ce-compound-refresh",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    fixture: `${FIX}/refresh-worth-lens`,
+    timeout_secs: 900,
+    why: "A cleanup or upgrade intent turns on the worth lens, which can delete accurate docs, so the run states the reading back and confirms before any investigation and before its reference loads.",
+    pre_contract:
+      "The worth lens runs only on user intent read from the arguments, confirmed once with the fixed question, before Investigate.",
+    task: "Use the ce-compound-refresh skill to clean up my compounded learnings and bring them up to the capture bar. Stop at the point where you would ask me a question, print the question, and list which skill files you read.",
+    grade: {
+      must_include: ["You asked to clean up the learnings. Which do you want?", "Nothing accurate is deleted."],
+      actions: "none",
+    },
+  },
+  {
+    id: "ce-compound-refresh/plain-refresh-keeps-redundant-accurate-doc",
+    post_only: true,
+    skill: "ce-compound-refresh",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    fixture: `${FIX}/refresh-worth-lens`,
+    timeout_secs: 900,
+    why: "Without the intent, the refresh judges accuracy only. retry-once-on-lock.md is accurate and its rule is also stated in a test comment and AGENTS.md; an accuracy refresh keeps it rather than deleting it as redundant.",
+    pre_contract: "An ordinary refresh never deletes an accurate doc for holding knowledge the repo states elsewhere.",
+    task: "Use the ce-compound-refresh skill on the workflow category. Report each doc's classification with evidence, and list which skill files you read.",
+    grade: {
+      workspace_read: ["docs/solutions/workflow/retry-once-on-lock.md"],
+      must_include: ["Keep"],
+      actions: "none",
+    },
+  },
+  {
+    id: "ce-compound-refresh/confirmed-worth-lens-deletes-only-with-quoted-artifact",
+    post_only: true,
+    skill: "ce-compound-refresh",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    fixture: `${FIX}/refresh-worth-lens`,
+    timeout_secs: 900,
+    why: "Once confirmed, the lens deletes an accurate doc only when a named artifact states its reasoning, quoted as evidence, and keeps a doc whose measurement and rejected alternative exist nowhere else.",
+    pre_contract:
+      "Recoverability needs positive evidence: a named in-repo artifact whose own text states the reasoning. Nothing recoverable is Keep.",
+    task: "Use the ce-compound-refresh skill to clean up my compounded learnings and bring them to the capture bar. I confirm the worth lens now, so do not ask again. Report each doc's verdict with its evidence, and list which skill files you read. Do not write anything.",
+    grade: {
+      files_read_post: ["references/worth-audit.md"],
+      workspace_read: ["tests/jobs.test.js"],
+      must_include: ["retry-once-on-lock.md", "Delete", "jobs.test.js", "header-parse-measured-limit.md", "Keep"],
       actions: "none",
     },
   },
