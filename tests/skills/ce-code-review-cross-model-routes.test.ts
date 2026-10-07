@@ -428,7 +428,7 @@ printf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[],"resid
     expect(cmd).toContain("-s read-only")
     expect(cmd).toContain("--skip-git-repo-check")
     expect(cmd).toContain('model_reasoning_effort="xhigh"')
-    expect(cmd).toContain("gpt-5.6-luna")
+    expect(cmd).toContain("gpt-6-luna")
     expect(cmd).toContain("-C <repo-root>")
   })
 
@@ -446,7 +446,7 @@ printf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[],"resid
     expect(cmd).toContain("WebSearch")
     expect(cmd).toContain("Skill")
     expect(cmd).toContain("--effort high")
-    expect(cmd).toContain("--model claude-opus-5")
+    expect(cmd).toContain("--model claude-opus-5-5")
     // stream-json + --verbose: PEERLOG grows mid-run for run_timeout_cmd idle (#1270).
     expect(cmd).toContain("--output-format stream-json")
     expect(cmd).toContain("--verbose")
@@ -455,7 +455,7 @@ printf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[],"resid
     expect(cmd).not.toContain("--bare")
   })
 
-  test("grok CLI: deny writes/shell/web; Read NOT denied; effort high; repo cwd", () => {
+  test("grok CLI: deny writes/shell/web; Read NOT denied; effort xhigh; repo cwd", () => {
     const cmd = emitAdapter("grok-cli")
     expect(cmd).toContain("--deny Edit")
     expect(cmd).toContain("--deny Write")
@@ -466,8 +466,8 @@ printf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[],"resid
     expect(cmd).toContain("--disable-web-search")
     expect(cmd).toContain("--no-subagents")
     expect(cmd).toContain("--permission-mode dontAsk")
-    expect(cmd).toContain("--effort high")
-    expect(cmd).toContain("--model grok-4.6")
+    expect(cmd).toContain("--effort xhigh")
+    expect(cmd).toContain("--model grok-4.7")
     expect(cmd).toContain("--cwd <repo-root>")
     expect(cmd).not.toContain("--deny Read")
     // Schema forces buffered json — no PEERLOG idle signal (#1270 residual).
@@ -485,21 +485,40 @@ printf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[],"resid
       expect(cmd).toContain("--workspace <repo-root>")
       expect(cmd).toContain("--output-format stream-json")
     }
-    expect(emitAdapter("grok-cursor")).toContain("cursor-grok-4.6-high")
+    expect(emitAdapter("grok-cursor")).toContain("grok-4.7-xhigh")
     expect(emitAdapter("cursor")).not.toContain("--model")
     expect(emitAdapter("composer")).toContain("composer-2.5-fast")
   })
 
-  test("opencode run is --dir --format json without --auto", () => {
-    const cmd = emitAdapter("opencode")
+  test.each([
+    { label: "default", overrides: {} },
+    { label: "model", overrides: {
+      CROSS_MODEL_MODEL_OVERRIDE_TARGET: "opencode",
+      CROSS_MODEL_MODEL_OVERRIDE: "openrouter/anthropic/test-model",
+    } },
+    { label: "model and effort", overrides: {
+      CROSS_MODEL_MODEL_OVERRIDE_TARGET: "opencode",
+      CROSS_MODEL_MODEL_OVERRIDE: "openrouter/anthropic/test-model",
+      CROSS_MODEL_EFFORT_OVERRIDE: "high",
+    } },
+  ])("opencode keeps the prompt outside variadic --file ($label)", ({ overrides }) => {
+    const env = overrides as Record<string, string>
+    const cmd = emitAdapter("opencode", SCRIPT, env)
     expect(cmd).toContain("opencode run")
     expect(cmd).toContain('OPENCODE_CONFIG_CONTENT={"permission":{"edit":"deny","bash":"deny","webfetch":"deny","task":"deny"}}')
     expect(cmd).toContain("OPENCODE_DISABLE_PROJECT_CONFIG=1")
     expect(cmd).toContain("--dir <repo-root>")
     expect(cmd).toContain("--format json")
     expect(cmd).toContain("--file <prompt-file>")
+    const prompt = "Follow the attached brief. Return only schema-shaped JSON."
+    expect(cmd).toContain(prompt)
+    // OpenCode's --file consumes following bare arguments as more attachments.
+    expect(cmd.indexOf(prompt)).toBeLessThan(cmd.indexOf("--file <prompt-file>"))
+    if (env.CROSS_MODEL_MODEL_OVERRIDE) expect(cmd).toContain(`--model ${env.CROSS_MODEL_MODEL_OVERRIDE}`)
+    else expect(cmd).not.toContain("--model")
+    if (env.CROSS_MODEL_EFFORT_OVERRIDE) expect(cmd).toContain(`--variant ${env.CROSS_MODEL_EFFORT_OVERRIDE}`)
+    else expect(cmd).not.toContain("--variant")
     expect(cmd).not.toContain("--auto")
-    expect(cmd).not.toContain("--model")
   })
 
   test("stream-json NDJSON result event yields findings and model receipt", () => {
@@ -507,7 +526,7 @@ printf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[],"resid
     // live on the terminal type=result event (#1270 Bugbot).
     const ndjson =
       '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking"}]}}\n' +
-      '{"type":"result","subtype":"success","structured_output":{"reviewer":"adversarial","findings":[{"title":"from-stream"}],"residual_risks":[],"testing_gaps":[]},"modelUsage":{"claude-opus-5-20260801":{"inputTokens":10}}}\n'
+      '{"type":"result","subtype":"success","structured_output":{"reviewer":"adversarial","findings":[{"title":"from-stream"}],"residual_risks":[],"testing_gaps":[]},"modelUsage":{"claude-opus-5-5-20260801":{"inputTokens":10}}}\n'
     const stub = `#!/bin/sh\ncat >/dev/null\nprintf '%s' '${ndjson.replace(/'/g, `'\\''`)}'\n`
     const { env } = sandbox(["claude"], stub)
     const runDir = makeRunDir()
@@ -515,7 +534,7 @@ printf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[],"resid
     expect(r.files).toContain("adversarial-claude.json")
     const out = JSON.parse(readFileSync(path.join(runDir, "adversarial-claude.json"), "utf8"))
     expect(out.findings[0].title).toBe("from-stream")
-    expect(out.model_actual).toBe("claude-opus-5-20260801")
+    expect(out.model_actual).toBe("claude-opus-5-5-20260801")
   }, 20_000)
 
   test("silent PEERLOG on a streaming route is reaped by idle before the hard cap", () => {
@@ -1402,10 +1421,10 @@ describe("cross-model-adversarial-review normalization", () => {
 
   test("records model_requested and the dated model_actual when the claude receipt matches (R7)", () => {
     // Real claude CLI envelope shape: modelUsage at the envelope top level, keyed
-    // by the full dated id that actually served the run. Requested id "claude-opus-5"
-    // expects a served id starting claude-opus-5 (undated or dated).
+    // by the full dated id that actually served the run. Requested id "claude-opus-5-5"
+    // expects a served id starting claude-opus-5-5 (undated or dated).
     const receiptStub =
-      `#!/bin/sh\ncat >/dev/null\nprintf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[{"title":"t"}]},"modelUsage":{"claude-opus-5-20260801":{"inputTokens":10}}}'\n`
+      `#!/bin/sh\ncat >/dev/null\nprintf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[{"title":"t"}]},"modelUsage":{"claude-opus-5-5-20260801":{"inputTokens":10}}}'\n`
     const { env } = sandbox(["claude"], receiptStub)
     const runDir = makeRunDir()
     const r = run(["codex", "claude", "HEAD", runDir], runDir, env)
@@ -1414,8 +1433,8 @@ describe("cross-model-adversarial-review normalization", () => {
       readFileSync(path.join(runDir, "adversarial-claude.json"), "utf8"),
     )
     expect(out.cross_model_route).toBe("claude")
-    expect(out.model_requested).toBe("claude-opus-5")
-    expect(out.model_actual).toBe("claude-opus-5-20260801")
+    expect(out.model_requested).toBe("claude-opus-5-5")
+    expect(out.model_actual).toBe("claude-opus-5-5-20260801")
     expect(r.stderr).not.toContain("model mismatch")
   })
 
@@ -1425,7 +1444,7 @@ describe("cross-model-adversarial-review normalization", () => {
     // pick) would choose haiku; the prefix match must select the opus key and
     // raise no mismatch warning.
     const multiKeyStub =
-      `#!/bin/sh\ncat >/dev/null\nprintf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[{"title":"t"}]},"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":2},"claude-opus-5-20260801":{"inputTokens":10}}}'\n`
+      `#!/bin/sh\ncat >/dev/null\nprintf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[{"title":"t"}]},"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":2},"claude-opus-5-5-20260801":{"inputTokens":10}}}'\n`
     const { env } = sandbox(["claude"], multiKeyStub)
     const runDir = makeRunDir()
     const r = run(["codex", "claude", "HEAD", runDir], runDir, env)
@@ -1433,8 +1452,8 @@ describe("cross-model-adversarial-review normalization", () => {
     const out = JSON.parse(
       readFileSync(path.join(runDir, "adversarial-claude.json"), "utf8"),
     )
-    expect(out.model_requested).toBe("claude-opus-5")
-    expect(out.model_actual).toBe("claude-opus-5-20260801")
+    expect(out.model_requested).toBe("claude-opus-5-5")
+    expect(out.model_actual).toBe("claude-opus-5-5-20260801")
     expect(r.stderr).not.toContain("model mismatch")
   })
 
@@ -1449,9 +1468,9 @@ describe("cross-model-adversarial-review normalization", () => {
     const out = JSON.parse(
       readFileSync(path.join(runDir, "adversarial-claude.json"), "utf8"),
     )
-    expect(out.model_requested).toBe("claude-opus-5")
+    expect(out.model_requested).toBe("claude-opus-5-5")
     expect(out.model_actual).toBe("claude-haiku-4-5-20251001")
-    expect(r.stderr).toContain("WARNING: model mismatch - requested claude-opus-5, backend served claude-haiku-4-5-20251001")
+    expect(r.stderr).toContain("WARNING: model mismatch - requested claude-opus-5-5, backend served claude-haiku-4-5-20251001")
   })
 
   test("verifies a fable-alias override against a served claude-fable-* id without a mismatch warning (R7)", () => {
@@ -1497,20 +1516,20 @@ describe("cross-model-adversarial-review normalization", () => {
     expect(r.stderr).not.toContain("model mismatch")
   })
 
-  test("a full-id request rejects a longer sibling served id (claude-opus-5 vs claude-opus-50-*) with a mismatch warning (R7)", () => {
-    // Bare startswith would accept claude-opus-50-... for a requested claude-opus-5;
+  test("a full-id request rejects a longer sibling served id (claude-opus-5-5 vs claude-opus-5-50-*) with a mismatch warning (R7)", () => {
+    // Bare startswith would accept claude-opus-5-50-... for a requested claude-opus-5-5;
     // the match must be exact or delimited by "-" so a sibling generation warns.
     const siblingStub =
-      `#!/bin/sh\ncat >/dev/null\nprintf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[{"title":"t"}]},"modelUsage":{"claude-opus-50-20260801":{"inputTokens":10}}}'\n`
+      `#!/bin/sh\ncat >/dev/null\nprintf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[{"title":"t"}]},"modelUsage":{"claude-opus-5-50-20260801":{"inputTokens":10}}}'\n`
     const { env } = sandbox(["claude"], siblingStub)
     const runDir = makeRunDir()
     const r = run(["codex", "claude", "HEAD", runDir], runDir, env)
     const out = JSON.parse(
       readFileSync(path.join(runDir, "adversarial-claude.json"), "utf8"),
     )
-    expect(out.model_requested).toBe("claude-opus-5")
-    expect(out.model_actual).toBe("claude-opus-50-20260801")
-    expect(r.stderr).toContain("WARNING: model mismatch - requested claude-opus-5, backend served claude-opus-50-20260801")
+    expect(out.model_requested).toBe("claude-opus-5-5")
+    expect(out.model_actual).toBe("claude-opus-5-50-20260801")
+    expect(r.stderr).toContain("WARNING: model mismatch - requested claude-opus-5-5, backend served claude-opus-5-50-20260801")
   })
 
   test("a valid effort override is recorded as effort_requested and an invalid one skips the pass", () => {
@@ -1538,7 +1557,7 @@ describe("cross-model-adversarial-review normalization", () => {
     const out = JSON.parse(
       readFileSync(path.join(runDir, "adversarial-claude.json"), "utf8"),
     )
-    expect(out.model_requested).toBe("claude-opus-5")
+    expect(out.model_requested).toBe("claude-opus-5-5")
     expect(out.model_actual).toBe("unverified")
     expect(r.stderr).toContain("model receipt absent/unparseable on claude route; recording unverified")
   })
@@ -1589,7 +1608,7 @@ describe("cross-model-adversarial-review normalization", () => {
       CROSS_MODEL_MODEL_OVERRIDE: "composer-next",
     }
     expect(emitAdapter("composer", SCRIPT, override)).toContain("--model composer-next")
-    expect(emitAdapter("grok-cursor", SCRIPT, override)).toContain("--model cursor-grok-4.6-high")
+    expect(emitAdapter("grok-cursor", SCRIPT, override)).toContain("--model grok-4.7-xhigh")
     expect(emitAdapter("cursor", SCRIPT, override)).not.toContain("--model")
 
     const crossFamily = spawnSync("bash", [SCRIPT, "--emit-adapter", "composer"], {
@@ -1597,7 +1616,7 @@ describe("cross-model-adversarial-review normalization", () => {
       env: {
         ...process.env,
         CROSS_MODEL_MODEL_OVERRIDE_TARGET: "composer",
-        CROSS_MODEL_MODEL_OVERRIDE: "gpt-5.6-sol",
+        CROSS_MODEL_MODEL_OVERRIDE: "gpt-6.1-sol",
       },
     })
     expect(crossFamily.status).toBe(2)
@@ -1618,7 +1637,7 @@ describe("cross-model-adversarial-review normalization", () => {
       readFileSync(path.join(runDir, "adversarial-codex.json"), "utf8"),
     )
     expect(out.cross_model_route).toBe("codex")
-    expect(out.model_requested).toBe("gpt-5.6-luna")
+    expect(out.model_requested).toBe("gpt-6-luna")
     expect(out.model_actual).toBe("unverified")
     // Recover-from-stdout has no turn.completed; usage must be absent, not a
     // zero-byte file that json.load rejects (#1531).
@@ -1907,14 +1926,14 @@ function blockBetween(script: string, startMarker: string, endMarker = "# --- --
 
 describe("cross-model provider kernel parity (code-review vs doc-review)", () => {
   test("model IDs match across both skills' --emit-adapter output", () => {
-    expect(emitAdapter("codex")).toContain("gpt-5.6-luna")
-    expect(emitAdapter("codex", DOC_SCRIPT)).toContain("gpt-5.6-luna")
-    expect(emitAdapter("claude")).toContain("--model claude-opus-5")
-    expect(emitAdapter("claude", DOC_SCRIPT)).toContain("--model claude-opus-5")
-    expect(emitAdapter("grok-cli")).toContain("grok-4.6")
-    expect(emitAdapter("grok-cli", DOC_SCRIPT)).toContain("grok-4.6")
-    expect(emitAdapter("grok-cursor")).toContain("cursor-grok-4.6-high")
-    expect(emitAdapter("grok-cursor", DOC_SCRIPT)).toContain("cursor-grok-4.6-high")
+    expect(emitAdapter("codex")).toContain("gpt-6-luna")
+    expect(emitAdapter("codex", DOC_SCRIPT)).toContain("gpt-6-luna")
+    expect(emitAdapter("claude")).toContain("--model claude-opus-5-5")
+    expect(emitAdapter("claude", DOC_SCRIPT)).toContain("--model claude-opus-5-5")
+    expect(emitAdapter("grok-cli")).toContain("grok-4.7")
+    expect(emitAdapter("grok-cli", DOC_SCRIPT)).toContain("grok-4.7")
+    expect(emitAdapter("grok-cursor")).toContain("grok-4.7-xhigh")
+    expect(emitAdapter("grok-cursor", DOC_SCRIPT)).toContain("grok-4.7-xhigh")
     expect(emitAdapter("composer")).toContain("composer-2.5-fast")
     expect(emitAdapter("composer", DOC_SCRIPT)).toContain("composer-2.5-fast")
   })
@@ -1931,6 +1950,10 @@ describe("cross-model provider kernel parity (code-review vs doc-review)", () =>
       expect(emitAdapter("claude", script, { CROSS_MODEL_EFFORT_OVERRIDE: "xhigh" })).not.toContain("--effort high")
       expect(emitAdapter("codex", script, { CROSS_MODEL_EFFORT_OVERRIDE: "medium" })).toContain('model_reasoning_effort="medium"')
       expect(emitAdapter("grok-cli", script, { CROSS_MODEL_EFFORT_OVERRIDE: "medium" })).toContain("--effort medium")
+      // Levels the installed CLIs accept: codex lists max (and ultra on some models); grok accepts xhigh.
+      expect(emitAdapter("codex", script, { CROSS_MODEL_EFFORT_OVERRIDE: "max" })).toContain('model_reasoning_effort="max"')
+      expect(emitAdapter("codex", script, { CROSS_MODEL_EFFORT_OVERRIDE: "ultra" })).toContain('model_reasoning_effort="ultra"')
+      expect(emitAdapter("grok-cli", script, { CROSS_MODEL_EFFORT_OVERRIDE: "xhigh" })).toContain("--effort xhigh")
       // unset -> editorial defaults unchanged
       expect(emitAdapter("claude", script)).toContain("--effort high")
       expect(emitAdapter("codex", script)).toContain('model_reasoning_effort="xhigh"')
@@ -1940,8 +1963,8 @@ describe("cross-model provider kernel parity (code-review vs doc-review)", () =>
   test("an effort override the route cannot honor fails closed in both skills", () => {
     const cases: Array<[string, string]> = [
       ["claude", "minimal"],       // not a claude CLI level
-      ["codex", "max"],            // not a codex reasoning level
-      ["grok-cli", "xhigh"],       // not a grok level
+      ["codex", "minimal"],        // the API rejects it on every current codex model
+      ["grok-cli", "max"],         // not a grok level
       ["grok-cursor", "high"],     // cursor-agent routes imply effort in the model id
       ["composer", "high"],
       ["cursor", "high"],
@@ -1977,28 +2000,28 @@ describe("cross-model provider kernel parity (code-review vs doc-review)", () =>
   test("a provider-qualified codex model id is accepted; family is still checked", () => {
     // A codex CLI pointed at a non-default model_provider may require ids in
     // that provider's own namespace. Measured against the OpenAI-compatible
-    // surface at bedrock-mantle.<region>.api.aws: `gpt-5.6-luna` 404s there and
-    // `openai.gpt-5.6-sol` serves. Where that holds, the documented
+    // surface at bedrock-mantle.<region>.api.aws: `gpt-6-luna` 404s there and
+    // `openai.gpt-6-sol` serves. Where that holds, the documented
     // cross_model_model escape hatch has to be able to express the served form.
     expect(
       emitAdapter("codex", SCRIPT, {
         CROSS_MODEL_MODEL_OVERRIDE_TARGET: "codex",
-        CROSS_MODEL_MODEL_OVERRIDE: "openai.gpt-5.6-sol",
+        CROSS_MODEL_MODEL_OVERRIDE: "openai.gpt-6.1-sol",
       }),
-    ).toContain("-m openai.gpt-5.6-sol")
+    ).toContain("-m openai.gpt-6.1-sol")
     expect(
       emitAdapter("codex", SCRIPT, {
         CROSS_MODEL_MODEL_OVERRIDE_TARGET: "codex",
-        CROSS_MODEL_MODEL_OVERRIDE: "openai/gpt-5.6-sol",
+        CROSS_MODEL_MODEL_OVERRIDE: "openai/gpt-6.1-sol",
       }),
-    ).toContain("-m openai/gpt-5.6-sol")
+    ).toContain("-m openai/gpt-6.1-sol")
 
     const crossFamily = spawnSync("bash", [SCRIPT, "--emit-adapter", "codex"], {
       encoding: "utf8",
       env: {
         ...process.env,
         CROSS_MODEL_MODEL_OVERRIDE_TARGET: "codex",
-        CROSS_MODEL_MODEL_OVERRIDE: "bedrock.claude-opus-5",
+        CROSS_MODEL_MODEL_OVERRIDE: "bedrock.claude-opus-5-5",
       },
     })
     expect(crossFamily.status).toBe(2)

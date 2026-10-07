@@ -628,7 +628,7 @@ ROUTE_CONTRACTS = {
     "grok-cli": {"target": "grok", "harness": "grok", "intermediaries": [], "default_model": "auto", "restriction_posture": "cooperative"},
     "cursor": {"target": "cursor", "harness": "cursor-agent", "intermediaries": [], "default_model": "auto", "restriction_posture": "adapter-enforced"},
     "composer": {"target": "composer", "harness": "cursor-agent", "intermediaries": ["cursor"], "default_model": "composer-2.5-fast", "restriction_posture": "adapter-enforced"},
-    "grok-cursor": {"target": "grok", "harness": "cursor-agent", "intermediaries": ["cursor"], "default_model": "cursor-grok-4.6-high", "restriction_posture": "adapter-enforced"},
+    "grok-cursor": {"target": "grok", "harness": "cursor-agent", "intermediaries": ["cursor"], "default_model": "grok-4.7-xhigh", "restriction_posture": "adapter-enforced"},
     "opencode": {"target": "opencode", "harness": "opencode", "intermediaries": [], "default_model": "auto", "restriction_posture": "cooperative"},
 }
 
@@ -649,10 +649,13 @@ def route_model_allowed(route: str, model: str) -> bool:
     if route == "composer":
         return bool(re.fullmatch(r"composer-[A-Za-z0-9._-]+", model))
     if route == "grok-cursor":
-        return bool(re.fullmatch(r"cursor-grok-[A-Za-z0-9._-]+", model))
+        return bool(re.fullmatch(r"(?:cursor-grok-[A-Za-z0-9._-]+|grok-4\.7-[A-Za-z0-9._-]+)", model))
     if route == "opencode":
         return model == "auto" or bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+", model))
     return False
+
+
+EFFORT_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}")
 
 
 def fixed_route_contract(binding: dict, egress: dict, word: str = "BLOCKED") -> dict:
@@ -685,6 +688,9 @@ def fixed_route_contract(binding: dict, egress: dict, word: str = "BLOCKED") -> 
     restrictions = egress.get("restrictions", [])
     if not isinstance(restrictions, list) or not all(isinstance(item, str) for item in restrictions):
         raise Operational(word, "egress restrictions must be a string list")
+    effort = egress.get("effort")
+    if effort is not None and (not isinstance(effort, str) or not EFFORT_TOKEN.fullmatch(effort)):
+        raise Operational(word, "egress effort must be a short plain token")
     return contract
 
 
@@ -702,7 +708,7 @@ def attempt_authorization(
     intermediaries = egress.get("intermediaries")
     model = binding.get("model")
     restrictions = egress.get("restrictions", [])
-    return {
+    authorization = {
         "schema_version": 1,
         "run_id": doc["run_id"],
         "unit_id": unit_id,
@@ -717,6 +723,10 @@ def attempt_authorization(
         "activity_posture": activity_posture,
         "packet_digest": packet_digest,
     }
+    # Present only when requested, so an unset run keeps the original key set.
+    if egress.get("effort") is not None:
+        authorization["effort_requested"] = egress["effort"]
+    return authorization
 
 
 def read_external_packet(path: str, label: str = "unit packet") -> bytes:

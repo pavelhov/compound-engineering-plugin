@@ -80,12 +80,12 @@ log()  { printf '[cross-model-pov] %s\n' "$*" >&2; }
 skip() { log "$*"; exit 0; }   # non-blocking: announce reason, exit clean, no output
 
 # --- model + reasoning per provider ----------------------------------------
-# ONE model at HIGH reasoning per provider. Concrete IDs are the CURRENT instance of the tier principle
+# ONE model per provider at its editorial tier (native Grok is xhigh; Codex and Claude stay high). Concrete IDs are the CURRENT instance of the tier principle
 # and the single maintenance point when model families change.
-M_CODEX="gpt-5.6-sol"          # codex CLI            (-c model_reasoning_effort="high")
-M_CLAUDE="claude-opus-5"       # claude CLI, Opus 5   (--effort high)
-M_GROK="grok-4.6"              # grok CLI             (--effort high)
-M_GROK_CURSOR="cursor-grok-4.6-high" # cursor-agent grok route (reasoning baked into id)
+M_CODEX="gpt-6.1-sol"          # codex CLI            (-c model_reasoning_effort="high")
+M_CLAUDE="claude-opus-5-5"     # claude CLI, Opus 5.5 (--effort high)
+M_GROK="grok-4.7"              # grok CLI             (--effort xhigh)
+M_GROK_CURSOR="grok-4.7-xhigh" # cursor-agent --list-models; 4.7 has no cursor- prefix, effort is in the id
 M_COMPOSER="composer-2.5-fast" # cursor-agent composer (no high tier; -fast is the ceiling)
 
 # --- model-identity receipt (R7/R8) -----------------------------------------
@@ -229,7 +229,7 @@ adapter_argv() {
       # Schema forces buffered json — hard-only, no PEERLOG idle (#1270).
       # --verbatim: without it grok offloads a large prompt to a session file and
       # sends only a preview, spending scarce turns to re-read what it was given.
-      printf '%s\0' grok --prompt-file "$PROMPT_FILE" --verbatim --model "$(route_model grok-cli)" --effort high \
+      printf '%s\0' grok --prompt-file "$PROMPT_FILE" --verbatim --model "$(route_model grok-cli)" --effort xhigh \
         --cwd "$READ_ROOT" --permission-mode dontAsk \
         --deny Edit --deny Write --deny Bash --deny Task --deny 'mcp__*' \
         --no-subagents --max-turns 15 \
@@ -250,8 +250,8 @@ adapter_argv() {
     opencode)
       printf '%s\0' env 'OPENCODE_DISABLE_PROJECT_CONFIG=1' \
         'OPENCODE_CONFIG_CONTENT={"permission":{"edit":"deny","bash":"deny","webfetch":"deny","task":"deny"}}' \
-        opencode run --dir "$READ_ROOT" --format json --file "$PROMPT_FILE"
-      printf '%s\0' "Follow the attached brief. Return only schema-shaped JSON."
+        opencode run --dir "$READ_ROOT" --format json \
+        "Follow the attached brief. Return only schema-shaped JSON." --file "$PROMPT_FILE"
       _oc_model="$(route_model opencode)"
       [ "$_oc_model" = "auto" ] || [ -z "$_oc_model" ] || printf '%s\0' --model "$_oc_model"
       ;;
@@ -273,7 +273,7 @@ apply_model_override() {
     codex:gpt-*|codex:o[0-9]*|codex:*[./]gpt-*|codex:*[./]o[0-9]* ) ;;
     claude:fable|claude:opus|claude:sonnet|claude:haiku|claude:claude-* ) ;;
     grok-cli:grok-* ) ;;
-    grok-cursor:cursor-grok-* ) ;;
+    grok-cursor:cursor-grok-*|grok-cursor:grok-4.7-* ) ;;
     composer:composer-* ) ;;
     opencode:*/* ) ;;
     *) return 1 ;;
@@ -812,7 +812,11 @@ bounded_failure_evidence() {   # <logfile>; prefer structured diagnostics, then 
   # Ancillary fields describe the exit but are not the diagnostic itself. If
   # no recognized human-readable field exists, retain bounded raw output so a
   # CLI's newer or provider-specific error field is still visible.
-  [ -n "$human" ] && evidence="$human" || evidence="$(cat "$path")"
+  # Bound the raw fallback: bash 3.2 rewrites newlines in a large string
+  # superlinearly, so a full stream log would stall the worker for minutes.
+  if [ -n "$human" ]; then evidence="$human"
+  elif [ "$(wc -c <"$path")" -le 600 ]; then evidence="$(cat "$path")"
+  else IFS= read -r -d '' -n 300 evidence <"$path"; evidence="$evidence ... $(tail -c 300 "$path")"; fi
   [ -n "$ancillary" ] && evidence="${evidence:+$evidence | }$ancillary"
   evidence="${evidence//$'\n'/ }"
   if [ "${#evidence}" -gt 300 ]; then
@@ -829,7 +833,7 @@ attempt_route() {   # <provider> <route>
   case "$route" in
     codex)       note="$(route_model codex) (effort high)" ;;
     claude)      note="$(route_model claude) (effort high)" ;;
-    grok-cli)    note="$(route_model grok-cli) (effort high)" ;;
+    grok-cli)    note="$(route_model grok-cli) (effort xhigh)" ;;
     grok-cursor) note="$(route_model grok-cursor)" ;;
     cursor)      note="auto (serving model unverified)" ;;
     composer)    note="$(route_model composer)" ;;
