@@ -83,10 +83,10 @@ case "$TRANSIENT_RETRY_DELAY_SECS" in ''|*[!0-9]*) skip "transient retry delay m
 # Keep these in sync with ce-doc-review's script (parity-tested in CI).
 # codex: luna/xhigh is the benchmarked pick on API dollars (~0.30x sol-medium, tied
 # detection, slower tail) -- docs/solutions/skill-design/benchmark-review-peer-model-and-reasoning-tier.md
-M_CODEX="gpt-5.6-luna"         # codex CLI            (-c model_reasoning_effort="xhigh")
-M_CLAUDE="claude-opus-5"       # claude CLI, Opus 5   (--effort high)
-M_GROK="grok-4.6"              # grok CLI             (--effort high)
-M_GROK_CURSOR="cursor-grok-4.6-high"  # fixed cursor-agent Grok route (current id)
+M_CODEX="gpt-6-luna"         # codex CLI            (-c model_reasoning_effort="xhigh")
+M_CLAUDE="claude-opus-5-5"     # claude CLI, Opus 5.5 (--effort high)
+M_GROK="grok-4.7"              # grok CLI             (--effort xhigh)
+M_GROK_CURSOR="grok-4.7-xhigh" # cursor-agent --list-models; 4.7 has no cursor- prefix, effort is in the id
 M_COMPOSER="composer-2.5-fast" # cursor-agent composer (no high tier; -fast is the ceiling)
 
 route_effort() {   # <route> -> requested effort: the override where the route takes one, else editorial
@@ -101,9 +101,9 @@ route_effort() {   # <route> -> requested effort: the override where the route t
     esac
   fi
   case "$1" in
-    codex) printf 'xhigh' ;;
-    claude|grok-cli) printf 'high' ;;
-    grok-cursor) printf 'model-implied-high' ;;
+    codex|grok-cli) printf 'xhigh' ;;
+    claude) printf 'high' ;;
+    grok-cursor) printf 'model-implied-xhigh' ;;
     composer) printf 'fast' ;;
     cursor) printf 'unverified' ;;
     opencode) printf 'unverified' ;;
@@ -229,7 +229,7 @@ extract_model_receipt() {   # <route>; reads the envelope in $PEERLOG, sets MODE
 }
 
 # --- adapter argv (single source of truth for route flags) -----------------
-# Emits the CLI + flags NUL-delimited. Read-only / no-prompt (codex xhigh, others high).
+# Emits the CLI + flags NUL-delimited. Read-only / no-prompt (codex and grok xhigh, claude high).
 # Code-review isolation is IN-TREE (repo root), not empty-scratch tool-less:
 # peers may Read surrounding code. PEER_WORKDIR is the repo root; RAW_OUT lives
 # outside the repo (temp) and is published to RUN_DIR only after normalize.
@@ -287,8 +287,8 @@ adapter_argv() {
     opencode)
       printf '%s\0' env 'OPENCODE_DISABLE_PROJECT_CONFIG=1' \
         'OPENCODE_CONFIG_CONTENT={"permission":{"edit":"deny","bash":"deny","webfetch":"deny","task":"deny"}}' \
-        opencode run --dir "$PEER_WORKDIR" --format json --file "$PROMPT_FILE"
-      printf '%s\0' "Follow the attached brief. Return only schema-shaped JSON."
+        opencode run --dir "$PEER_WORKDIR" --format json \
+        "Follow the attached brief. Return only schema-shaped JSON." --file "$PROMPT_FILE"
       _oc_model="$(route_model opencode)"
       [ "$_oc_model" = "auto" ] || [ -z "$_oc_model" ] || printf '%s\0' --model "$_oc_model"
       _oc_effort="$(route_effort opencode)"
@@ -323,14 +323,17 @@ validate_model_override() {
   [ "$override_target" = "$target" ] || return 0
   [ "$target" != "cursor" ] || return 1
   case "$route:$override" in
-    codex:gpt-*|codex:o[0-9]*|codex:*[./]gpt-*|codex:*[./]o[0-9]*|claude:fable|claude:opus|claude:sonnet|claude:haiku|claude:claude-*|grok-cli:grok-*|grok-cursor:cursor-grok-*|composer:composer-*|opencode:*/*) ;;
+    codex:gpt-*|codex:o[0-9]*|codex:*[./]gpt-*|codex:*[./]o[0-9]*|claude:fable|claude:opus|claude:sonnet|claude:haiku|claude:claude-*|grok-cli:grok-*|grok-cursor:cursor-grok-*|grok-cursor:grok-4.7-*|composer:composer-*|opencode:*/*) ;;
     *) return 1 ;;
   esac
 }
 
 # Accept an effort override only where the route exposes an effort flag and the
-# value is one that CLI documents (claude: low|medium|high|xhigh|max; codex
-# model_reasoning_effort: minimal|low|medium|high|xhigh; grok: low|medium|high).
+# value is one that CLI accepts (claude: low|medium|high|xhigh|max; codex
+# model_reasoning_effort: low|medium|high|xhigh|max|ultra; grok: low|medium|high|xhigh).
+# Checked 2026-09-19 against claude and grok CLI help and codex 0.155.0's model
+# list. Codex levels vary per model, so a listed level can still fail after
+# launch on a model that lacks it.
 # cursor-agent routes imply effort in the model id, so any override there is
 # invalid for the route rather than silently dropped. Empty means "no override".
 validate_effort_override() {
@@ -338,8 +341,8 @@ validate_effort_override() {
   [ -n "$effort" ] || return 0
   case "$route:$effort" in
     claude:low|claude:medium|claude:high|claude:xhigh|claude:max) ;;
-    codex:minimal|codex:low|codex:medium|codex:high|codex:xhigh) ;;
-    grok-cli:low|grok-cli:medium|grok-cli:high) ;;
+    codex:low|codex:medium|codex:high|codex:xhigh|codex:max|codex:ultra) ;;
+    grok-cli:low|grok-cli:medium|grok-cli:high|grok-cli:xhigh) ;;
     opencode:none|opencode:minimal|opencode:low|opencode:medium|opencode:high|opencode:xhigh|opencode:max|opencode:default) ;;
     *) return 1 ;;
   esac
@@ -1273,7 +1276,11 @@ bounded_failure_evidence() {   # <logfile>
   # Ancillary fields describe the exit but are not the diagnostic itself. If
   # no recognized human-readable field exists, retain bounded raw output so a
   # CLI's newer or provider-specific error field is still visible.
-  [ -n "$human" ] && evidence="$human" || evidence="$(cat "$path")"
+  # Bound the raw fallback: bash 3.2 rewrites newlines in a large string
+  # superlinearly, so a full stream log would stall the worker for minutes.
+  if [ -n "$human" ]; then evidence="$human"
+  elif [ "$(wc -c <"$path")" -le 600 ]; then evidence="$(cat "$path")"
+  else IFS= read -r -d '' -n 300 evidence <"$path"; evidence="$evidence ... $(tail -c 300 "$path")"; fi
   [ -n "$ancillary" ] && evidence="${evidence:+$evidence | }$ancillary"
   evidence="${evidence//$'\n'/ }"
   if [ "${#evidence}" -gt 300 ]; then

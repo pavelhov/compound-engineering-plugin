@@ -93,22 +93,22 @@ describe("ce-pov cross-model route safety", () => {
     const accepted = emit("codex", {
       ...process.env,
       CROSS_MODEL_MODEL_OVERRIDE_TARGET: "codex",
-      CROSS_MODEL_MODEL_OVERRIDE: "openai.gpt-5.6-sol",
+      CROSS_MODEL_MODEL_OVERRIDE: "openai.gpt-6.1-sol",
     })
-    expect(accepted).toContain("openai.gpt-5.6-sol")
+    expect(accepted).toContain("openai.gpt-6.1-sol")
     const acceptedSlash = emit("codex", {
       ...process.env,
       CROSS_MODEL_MODEL_OVERRIDE_TARGET: "codex",
-      CROSS_MODEL_MODEL_OVERRIDE: "openai/gpt-5.6-sol",
+      CROSS_MODEL_MODEL_OVERRIDE: "openai/gpt-6.1-sol",
     })
-    expect(acceptedSlash).toContain("openai/gpt-5.6-sol")
+    expect(acceptedSlash).toContain("openai/gpt-6.1-sol")
 
     const crossFamily = spawnSync("bash", [SCRIPT, "--emit-adapter", "codex"], {
       encoding: "utf8",
       env: {
         ...process.env,
         CROSS_MODEL_MODEL_OVERRIDE_TARGET: "codex",
-        CROSS_MODEL_MODEL_OVERRIDE: "bedrock.claude-opus-5",
+        CROSS_MODEL_MODEL_OVERRIDE: "bedrock.claude-opus-5-5",
       },
     })
     expect(crossFamily.status).toBe(2)
@@ -122,6 +122,7 @@ describe("ce-pov cross-model route safety", () => {
       expect(command).not.toContain("bypassPermissions")
       expect(command).not.toContain("<run-dir>")
     }
+    expect(emit("codex")).toContain("-m gpt-6.1-sol")
     expect(emit("codex")).toContain("-s read-only")
     expect(emit("codex")).toContain("-C <read-root>")
     expect(emit("claude")).toContain("--permission-mode dontAsk")
@@ -147,13 +148,18 @@ describe("ce-pov cross-model route safety", () => {
     }
     expect(emit("cursor")).not.toContain("--model")
     expect(emit("composer")).toContain("--model")
-    expect(emit("grok-cursor")).toContain("--model cursor-grok-4.6-high")
+    expect(emit("grok-cli")).toContain("--model grok-4.7")
+    expect(emit("grok-cli")).toContain("--effort xhigh")
+    expect(emit("grok-cursor")).toContain("--model grok-4.7-xhigh")
     expect(emit("opencode")).toContain("opencode run")
     expect(emit("opencode")).toContain('OPENCODE_CONFIG_CONTENT={"permission":{"edit":"deny","bash":"deny","webfetch":"deny","task":"deny"}}')
     expect(emit("opencode")).toContain("OPENCODE_DISABLE_PROJECT_CONFIG=1")
     expect(emit("opencode")).toContain("--dir <read-root>")
     expect(emit("opencode")).toContain("--format json")
     expect(emit("opencode")).toContain("--file <prompt-file>")
+    // OpenCode's --file is variadic: a bare argument after it becomes another attachment.
+    expect(emit("opencode").indexOf("Follow the attached brief.")).toBeGreaterThan(-1)
+    expect(emit("opencode").indexOf("Follow the attached brief.")).toBeLessThan(emit("opencode").indexOf("--file <prompt-file>"))
     expect(emit("opencode")).not.toContain("--auto")
     const source = readFileSync(SCRIPT, "utf8")
     // Zombies report as Z+ on macOS; exact "Z" alone leaves them "alive".
@@ -208,7 +214,7 @@ describe("ce-pov cross-model route safety", () => {
 })
 
 describe("ce-pov output gate and receipts", () => {
-  const valid = '{"structured_output":{"voice":"peer","position":"Choose A","reasoning":"Lower correction cost","evidence":["https://example.com"],"external_check":"ran","mode":"independent","movement":"initial","final":true},"modelUsage":{"claude-opus-5-20260801":{"inputTokens":10}}}'
+  const valid = '{"structured_output":{"voice":"peer","position":"Choose A","reasoning":"Lower correction cost","evidence":["https://example.com"],"external_check":"ran","mode":"independent","movement":"initial","final":true},"modelUsage":{"claude-opus-5-5-20260801":{"inputTokens":10}}}'
 
   test.each([
     ["missing position", '{"structured_output":{"reasoning":"why"}}'],
@@ -247,7 +253,7 @@ describe("ce-pov output gate and receipts", () => {
   })
 
   test("accepts the fable alias as a claude override and verifies its receipt", () => {
-    const fable = valid.replace("claude-opus-5-20260801", "claude-fable-5")
+    const fable = valid.replace("claude-opus-5-5-20260801", "claude-fable-5")
     const { env } = sandbox(["claude"], `#!/bin/sh\ncat >/dev/null\nprintf '%s' '${fable}'\n`)
     const dir = runDir()
     const result = run(["codex", "claude", payload(), dir], dir, {
@@ -422,8 +428,8 @@ printf '%s' '${placeholder}'
     expect(out.cross_model_target).toBe("claude")
     expect(out.cross_model_harness).toBe("claude")
     expect(out.serving_family).toBe("claude")
-    expect(out.model_requested).toBe("claude-opus-5")
-    expect(out.model_actual).toBe("claude-opus-5-20260801")
+    expect(out.model_requested).toBe("claude-opus-5-5")
+    expect(out.model_actual).toBe("claude-opus-5-5-20260801")
     expect(out.movement).toBe("initial")
     expect(out.independence_verified).toBe(true)
   })

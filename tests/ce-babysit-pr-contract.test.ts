@@ -57,7 +57,7 @@ const CERESOLVE_FULL_MODE = "skills/ce-resolve-pr-feedback/references/full-mode.
 const CERESOLVE_PIPELINE = "skills/ce-resolve-pr-feedback/references/pipeline-mode.md"
 const CERESOLVE_RUBRIC = "skills/ce-resolve-pr-feedback/references/evaluation-rubric.md"
 const COMMIT_PUSH_HANDOFF = "skills/ce-commit-push-pr/references/apply-and-handoff.md"
-const LFG_SHIPPING_TAIL = "skills/lfg/references/shipping-tail.md"
+const LFG_SHIPPING_TAIL = "skills/lfg/references/shipping.md"
 const PR_SNAPSHOT = "skills/ce-babysit-pr/scripts/pr-snapshot"
 
 const NEEDS_HUMAN_RESIDUAL_FIELDS = [
@@ -141,7 +141,7 @@ describe("ce-babysit-pr cross-skill contract parity", () => {
   test("every trajectory field cited in consumer prose is one pr-snapshot actually emits", async () => {
     const script = await readRepoFile(PR_SNAPSHOT)
     const emitted = new Set(emittedTrajectoryKeys(script))
-    const [babysit, ceresolve] = await Promise.all([readBabysit(), readRepoFile(CERESOLVE)])
+    const [babysit, ceresolve] = await Promise.all([readBabysit(), readRepoFile("skills/ce-resolve-pr-feedback/references/pipeline-mode.md")])
     for (const field of BABYSIT_TRAJECTORY_REFS) {
       expect(emitted.has(field), `babysit cites '${field}' but pr-snapshot no longer emits it`).toBe(true)
       expect(babysit).toContain(field)
@@ -592,7 +592,7 @@ describe("ce-babysit-pr cross-skill contract parity", () => {
     expect(answerBlock).toContain('ce-babysit-pr/<host>-<owner>-<repo>-<N>')
     expect(answerBlock).toContain("for c in python3 python py")
     expect(answerBlock).toMatch(/read-only prohibits executing[^.]+not rendering/i)
-    expect(answerBlock).toMatch(/complete a read-only envelope[^.]+return the literal command[^.]+sole pending transition/i)
+    expect(answerBlock).toMatch(/read-only run[^.]+return the literal command[^.]+sole pending transition/i)
     expect(answerBlock).toMatch(/exact known values[^.]+explicit placeholders[^.]+invocation metadata[^.]+answer-file path/i)
     expect(answerBlock).toMatch(/literal `--answer-decision` and `--answer-file` flags/i)
     expect(answerBlock).toMatch(/prose paraphrase[^.]+in-memory state move[^.]+incomplete/i)
@@ -637,6 +637,28 @@ describe("ce-babysit-pr cross-skill contract parity", () => {
     expect(pipelineDelta).toMatch(/open\/claimed\/parked current currency item[^.]{0,240}residual/i)
   })
 
+  test("judgment-bound escalations are adjudicated through ce-pov before they become needs-human", async () => {
+    // The stalemate: the resolver's only exits for a contested item were fix or needs-human, so a
+    // judgment call parked forever. Adjudication runs only after a divert already fired, and an
+    // authority-bound item (security, billing, product, out-of-envelope action) never enters it.
+    const [rubric, pipeline, fullMode, targeted] = await Promise.all([
+      readRepoFile(CERESOLVE_RUBRIC),
+      readRepoFile(CERESOLVE_PIPELINE),
+      readRepoFile(CERESOLVE_FULL_MODE),
+      readRepoFile("skills/ce-resolve-pr-feedback/references/targeted-mode.md"),
+    ])
+    const section = rubric.match(/## Adjudicate before escalating[\s\S]+?(?=\n## )/)?.[0]
+    expect(section).toBeDefined()
+    expect(section).toMatch(/Authority-bound[\s\S]{0,600}Do not adjudicate/)
+    expect(section).toMatch(/Judgment-bound[\s\S]{0,600}Invoke `ce-pov`/)
+    expect(section).toMatch(/never for an item that met no divert/)
+    expect(section).toMatch(/`ce-pov` unavailable[^.]{0,80}`needs-human`/)
+    // Every judgment step that can emit needs-human routes through the section.
+    for (const [name, text] of [["pipeline", pipeline], ["full-mode", fullMode], ["targeted-mode", targeted]] as const) {
+      expect(text, `${name} must route judgment-bound escalations through adjudication`).toContain("Adjudicate before escalating")
+    }
+  })
+
   test("needs-human cannot become a successful handoff before its decision payload reaches the coordinator", async () => {
     const [resolverRubric, resolverPipeline, debugPipeline, babysitPipeline, babysitWatch, babysitTick, babysitSettle, babysitReport, commitPush, lfg] =
       await Promise.all([
@@ -665,7 +687,7 @@ describe("ce-babysit-pr cross-skill contract parity", () => {
     expect(debugPipeline).toContain('"kind": "check"')
     expect(debugPipeline).toContain('"kind": "thread"')
     expect(debugPipeline).toContain('"type": "needs-human"')
-    expect(debugPipeline).toMatch(/sources[^.]{0,240}every item[^.]{0,240}owns/i)
+    expect(debugPipeline).toMatch(/sources[^.]{0,240}every item this one decision covers/i)
     expect(debugPipeline).toMatch(/thread_urls[^.]{0,180}every owned open thread/i)
 
     expect(babysitPipeline).toMatch(/success only when[^.]{0,500}`needs_human_residuals`[^.]{0,120}empty/i)
