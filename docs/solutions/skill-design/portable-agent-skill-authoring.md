@@ -18,7 +18,7 @@ tags:
   - protocol
   - judgment
   - skill-eval
-last_updated: 2026-09-11
+last_updated: 2026-11-09
 ---
 
 # Portable Agent Skill Authoring
@@ -266,6 +266,8 @@ Preserve the semantic floor. If every iteration requires agent reasoning, sub-sk
 
 Do not infer that a capability is unavailable from one missing binary, environment variable, or MCP server. Check the harness's available interfaces and degrade explicitly.
 
+Let the host's rules decide how to wait. A skill owns its outcome: what each iteration judges, what state it keeps, and when it stops. When host instructions say how control returns between iterations, they outrank the skill, so a skill that bans a host's tool or requires its own watcher sets up a conflict it cannot win. The agent then spends its reasoning on reconciling the two, or runs both. State the skill's mechanism as the default, say when the host's replaces it, and name what the replacement may not cover. A ban on a host tool stays valid only where the tool would replace the skill's work rather than its wake-up.
+
 ### Bundled files
 
 Distinguish three path cases:
@@ -315,9 +317,18 @@ Always-loaded skill prose remains in context throughout the workflow. Extract su
 - Move large schemas, specialist prompts, examples, and route-specific instructions to references.
 - Keep the instruction to load the reference inline at the point of use, and state once in the body that a read made before that point does not satisfy it; a host that reads every reference at skill load meets the letter of "read before the step" while losing both the context saving and any safety path that depends on a late read (`size-driven-skill-restructure.md`, "When a host front-loads the references").
 - Do not inline a summary complete enough to suppress loading the authoritative reference.
+- Tell the agent to read each skill file whole in its own tool call, before the first reference read. Codex returns about 40 KB of one tool output and drops the middle, whatever output cap the agent asks for. Agents also batch a SKILL.md with other output into one command, or set a low cap themselves. Five audited `ce-debug` sessions lost text this way, once all of Phase 4 routing (#2030, 2026-11-08 audit). Reuse the exact sentence `tests/review-skill-contract.test.ts` pins as `READ_EACH_FILE_RULE`. The 36 KB per-file guard in `tests/codex-skill-prompt-budget.test.ts` is the size half of the same rule.
 - Pass large context to subagents by file path plus a short gist rather than duplicating it into prompts.
 
 Dispatch a subagent only for a reason that survives better compaction. There are four: the work must read far more than it returns and the parent will not need the raw material again; independent judgment is the product (review, verification, ideation, judging), so the parent's context would anchor it; substantial units can run in parallel without shared files or state; or the harness can actually select a different model for it. Do the work in the parent when its input lives only in the parent (the conversation, decisions settled this session), when the parent will read the full output back anyway, or when it is a small change to code the parent already read. A fresh subagent sees only what its prompt carries, so a subagent told to "extract the conversation" without being handed it is a broken dispatch, not a cheap one: `ce-compound` once drafted every learning that way. Inlining is not free either. Tokens added to a long-lived parent, such as an `lfg` or `ce-babysit-pr` chain, are re-read on every later turn, and in one measured `ce-code-review` run the orchestrator's cache reads were twice those of its six subagents combined (`review-cost-is-in-entering-the-spine-not-the-findings.md`). Each delegated task still needs a distinct scope, output contract, and synthesis owner.
+
+The brief is everything the child knows about the run. Telling the child that it does not inherit the conversation does not give it what the conversation held. A brief carries three things the child cannot recover on its own:
+
+- **The user's stated constraints that bound the child's work**, in the user's words: limits on scope, mutation, or output, and what to leave alone. This does not include decisions the child exists to judge independently, such as a settled design choice a reviewer should stay free to re-derive. Observed after #1974: a Codex `ce-code-review` brief told the reviewer it did not inherit the conversation, then dropped a constraint the user had stated.
+- **A stop condition scoped to the child's work.** It says what to hold (the refused action, the failed check, and whatever depends on it) and what may continue (independent parts of the same task). It also says that finished work stays in place. A bare "stop and report" makes one refused step throw away finished or partly verified work.
+- **A report of what did not go as briefed**: any action the harness or a permission check refused, any work beyond the assigned scope, and anything skipped, worked around, or left unverified. A summary of what the child did hides these, so the parent integrates the result as if it were complete.
+
+The dispatching skill states these as conditions its briefs must meet, not as fixed brief text. When the child's existing contract already covers one, such as a budget rule that says what to keep or a schema field for uncovered risk, the skill does not repeat it.
 
 Stable cross-skill fields, enums, and return statuses are protocols. Version or parity-test them when independently evolving skills depend on exact agreement.
 
@@ -391,6 +402,8 @@ Verify load-bearing harness claims live on the runtimes that depend on them. Lea
 
 Read a tie honestly. If old and new prose both succeed on a strong model, the test shows no regression but not improvement. Test the claimed determinism or weaker-model insurance at the layer where it matters.
 
+After any change that writes or rewrites skill prose, have a fresh reader, a subagent that did not author the change, quote every sentence it had to read twice and any rewritten sentence whose meaning drifted. The author can't see these, and evals and review bots pass them too. Size the read to the change: a restructure gets the whole always-loaded body; a new or rewritten sentence gets read once in place, even when it's copied into several files. `ce-skill-work`'s `references/evaluate.md` carries the procedure.
+
 Measure the outcome the skill exists to improve, not proxy volume:
 
 - creative work: grounded novelty, diversity of surviving decisions, and downstream usefulness;
@@ -442,6 +455,7 @@ Measure the outcome the skill exists to improve, not proxy volume:
 - [ ] Inherited authority is explicit and can only narrow.
 - [ ] Delegated tasks have distinct scopes, output contracts, and a synthesis owner.
 - [ ] Each subagent dispatch names its reason (flood protection, independent judgment, parallel units, or a selectable model) and receives every input it needs; work whose input lives only in the parent stays in the parent.
+- [ ] Each brief carries the user's stated constraints on the child's work (not decisions the child should judge independently), says what to hold and what may continue when a step is blocked, and asks for a report of refused actions, scope overruns, and skipped, worked-around, or unverified steps.
 
 ### Evidence and evaluation
 

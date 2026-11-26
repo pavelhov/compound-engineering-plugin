@@ -103,9 +103,8 @@ const codeReview = readRepoFile("skills/ce-code-review/SKILL.md")
 const codeReviewIntent = readRepoFile(
   "skills/ce-code-review/references/intent-and-plan.md",
 )
-const codeReviewFinish = readRepoFile(
-  "skills/ce-code-review/references/finish-review.md",
-)
+const codeReviewMerge = readRepoFile("skills/ce-code-review/references/finish-merge.md")
+const codeReviewReport = readRepoFile("skills/ce-code-review/references/finish-report.md")
 const ceWorkShipping = readRepoFile(
   "skills/ce-work/references/shipping-workflow.md",
 )
@@ -363,9 +362,9 @@ describe("unified plan artifact contract", () => {
     expect(carrier).toMatch(/disable-model-invocation.*headless run, never ask/is)
     expect(carrier).toContain("default path is mandatory")
 
-    // Step 1 threads the plan_model carrier to ce-plan beside the sanitized request;
-    // the body names the carrier at the seam and the reference owns its exact form.
-    expect(sliceSection(lfg, "1. **Produce the work source**", "2. **Read `references/work-return.md` first**")).toContain(
+    // Route 6 in intake.md threads the plan_model carrier to ce-plan beside the sanitized
+    // request; stage-routing.md owns its exact form.
+    expect(readFileSync(path.join(process.cwd(), "skills/lfg/references/intake.md"), "utf8")).toContain(
       "`plan_model:<alias>` carrier",
     )
     const step1 = carrier
@@ -718,7 +717,7 @@ describe("session-settled decision contract", () => {
 
   test("ce-code-review discards settled preferences, retains defects, and protects decisions during apply", () => {
     const stage5 = sliceSection(
-      codeReviewFinish,
+      codeReviewMerge,
       "### Stage 5: Merge findings",
       "### Stage 5b",
     )
@@ -728,7 +727,7 @@ describe("session-settled decision contract", () => {
     expect(stage5).toContain("Keep evidence of a real defect")
     expect(stage5).toContain("with normal severity")
     const stage5c = sliceSection(
-      codeReviewFinish,
+      codeReviewReport,
       "### Stage 5c: Act on findings",
       "### Stage 6",
     )
@@ -871,6 +870,15 @@ describe("cross-layer ownership contract", () => {
 })
 
 describe("Product Contract section catalog and routing destinations", () => {
+  test("relevant prototype sources reach both native and external unit packets", () => {
+    const native = readRepoFile("skills/ce-work/references/execution-strategy.md")
+    const packetContract = "Include the active unit's prototype source citations with their qualifications about locality, availability, and the authority of requirements. Instruct the worker to inspect accessible, explicitly cited prototype decisions and selected screens or states before implementing the affected behavior, including when those sources are in another worktree. Keep edits and tests inside the assigned workspace."
+    expect(native).toContain(packetContract)
+    expect(crossModelExecution).toContain(packetContract)
+    expect(readRepoFile("skills/ce-plan/references/output-mode.md")).toContain(
+      "**Repository file references inside the plan are repo-relative**",
+    )
+  })
   // ce-plan's include-when-material catalog specified only implementation-facing
   // sections; its product-shape sections had no firing/skip rule at all. Measured
   // 2026-08-12 across 34 pre-existing unified plans: Success Criteria appeared in

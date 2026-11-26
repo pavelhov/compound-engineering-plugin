@@ -29,13 +29,46 @@ function gitPathExists(ref: string, gitPath: string): boolean {
   return spawnSync("git", ["cat-file", "-e", `${ref}:${gitPath}`], { cwd: REPO_ROOT }).status === 0
 }
 
+const skillAtRef = new Map<string, boolean>()
 function gitShowExists(ref: string, skill: string): boolean {
-  return gitPathExists(ref, `skills/${skill}/SKILL.md`)
+  const key = `${ref}:${skill}`
+  const cached = skillAtRef.get(key)
+  if (cached !== undefined) return cached
+  const exists = gitPathExists(ref, `skills/${skill}/SKILL.md`)
+  skillAtRef.set(key, exists)
+  return exists
 }
 
 describe("skill-eval-cell catalog", () => {
   test("every scenario grades a decision or an artifact", () => {
     expect(SCENARIOS.filter((s) => !scenarioHasDecisionGrade(s)).map((s) => s.id)).toEqual([])
+  })
+
+  test("handoff-probe rows can run the recorder and grade its log", () => {
+    const probes = SCENARIOS.filter((s) => s.handoff_probe?.length)
+    expect(probes.filter((s) => s.read_only).map((s) => s.id)).toEqual([])
+    expect(
+      probes.filter((s) => !s.grade.shim_log_must?.length && !s.grade.shim_log_must_not?.length).map((s) => s.id),
+    ).toEqual([])
+    expect(
+      probes.filter((s) => s.handoff_probe!.some((name) => s.with_skill?.includes(name))).map((s) => s.id),
+    ).toEqual([])
+  })
+
+  test("handoff-probe rows grade that the handoff was the run's only effect", () => {
+    const unguarded = SCENARIOS.filter((s) => s.handoff_probe?.length).filter((s) => {
+      const forbidden = s.grade.shim_log_must_not ?? []
+      return (
+        !s.grade.no_new_commits ||
+        !s.grade.workspace_unchanged ||
+        !["git push", "pr create", "pr merge"].every((n) => forbidden.includes(n))
+      )
+    })
+    expect(unguarded.map((s) => s.id)).toEqual([])
+  })
+
+  test("no_new_commits rows seed a repo to count commits against", () => {
+    expect(SCENARIOS.filter((s) => s.grade.no_new_commits && !s.git_init).map((s) => s.id)).toEqual([])
   })
 
   test("catalog skills are a subset of shipped skills", () => {
@@ -80,8 +113,8 @@ describe("skill-eval-cell catalog", () => {
       if (!scenario.post_only && !gitShowExists(preRef, scenario.skill)) {
         missing.push(`${scenario.skill} missing at ${preRef}`)
       }
-      if (!gitShowExists(POST_SWEEP_REF, scenario.skill)) {
-        missing.push(`${scenario.skill} missing at ${POST_SWEEP_REF}`)
+      for (const skill of [scenario.skill, ...(scenario.with_skill ?? [])]) {
+        if (!gitShowExists(POST_SWEEP_REF, skill)) missing.push(`${skill} missing at ${POST_SWEEP_REF}`)
       }
     }
     expect(missing).toEqual([])
@@ -147,7 +180,11 @@ describe("skill-eval-cell catalog", () => {
         "ce-brainstorm/verdict-routes-to-pov:references/phase-0.md",
         "ce-brainstorm/verdict-routes-to-pov:references/verdict-routing.md",
         "ce-brainstorm/write-plan-reads-plan-write:references/plan-write.md",
-        "ce-code-review/artifact-quote-before-filter:references/finish-review.md",
+        "ce-code-review/artifact-quote-before-filter:references/finish-merge.md",
+        "ce-code-review/adversarial-ci-deploy:references/modes-and-output.md",
+        "ce-code-review/adversarial-explicit:references/modes-and-output.md",
+        "ce-code-review/adversarial-full-routine:references/modes-and-output.md",
+        "ce-code-review/adversarial-payment:references/modes-and-output.md",
         "ce-code-review/depth-gate-ci-focused:references/modes-and-output.md",
         "ce-code-review/cross-model-fold-in-folded:references/cross-model-review.md",
         "ce-code-review/cross-model-fold-in-recovery:references/cross-model-recovery.md",
@@ -160,16 +197,49 @@ describe("skill-eval-cell catalog", () => {
         "ce-code-review/depth-gate-plan-lite:references/depth-paths.md",
         "ce-code-review/depth-gate-plan-lite:references/intent-and-plan.md",
         "ce-code-review/depth-gate-plan-lite:references/modes-and-output.md",
+        "ce-code-review/depth-gate-review-policy-exclusion:references/depth-paths.md",
+        "ce-code-review/depth-gate-review-policy-head-ignored:references/depth-paths.md",
         "ce-code-review/depth-gate-standards-clean:references/depth-paths.md",
+        "ce-code-review/depth-gate-review-policy-exclusion:references/modes-and-output.md",
+        "ce-code-review/depth-gate-review-policy-head-ignored:references/modes-and-output.md",
         "ce-code-review/depth-gate-standards-clean:references/modes-and-output.md",
         "ce-code-review/depth-gate-standards-violation:references/depth-paths.md",
         "ce-code-review/depth-gate-standards-violation:references/modes-and-output.md",
         "ce-code-review/depth-gate-unlisted-language:references/modes-and-output.md",
         "ce-code-review/depth-gate-yaml-lite:references/modes-and-output.md",
         "ce-commit-push-pr/description-only-no-commit:references/pr-description-writing.md",
-        "ce-compound-refresh/confirmed-worth-lens-deletes-only-with-quoted-artifact:references/worth-audit.md",
+        "ce-commit-push-pr/visual-after-only:references/visual-evidence.md",
+        "ce-commit-push-pr/visual-after-only-heading:references/visual-evidence.md",
+        "ce-commit-push-pr/visual-before-from-baseline:references/visual-evidence.md",
+        "ce-commit-push-pr/visual-before-from-deployment:references/visual-evidence.md",
+        "ce-commit-push-pr/visual-net-new-page:references/visual-evidence.md",
+        "ce-commit-push-pr/visual-project-hosts-screenshots:references/visual-evidence.md",
+        "ce-commit-push-pr/visual-stale-after-push:references/visual-evidence.md",
+        "ce-compound/refresh-worth-deletes-only-with-quoted-artifact:references/refresh/worth-audit.md",
+        "ce-compound/refresh-worth-obsolete-check-recommends-removal:references/refresh/worth-audit.md",
+        "ce-compound/refresh-worth-vacuous-check-is-not-coverage:references/refresh/worth-audit.md",
+        "ce-compound/testable-defect-writes-test:references/form.md",
         "ce-commit-push-pr/babysit-off-preserves-human-decision:references/apply-and-handoff.md",
         "ce-debug/pipeline-convergent-fix:references/pipeline-mode.md",
+        "ce-doc-review/depth-escalates-other-users-records:references/depth.md",
+        "ce-doc-review/depth-full-denied-payment:references/depth.md",
+        "ce-doc-review/depth-full-passcode-payment:references/depth.md",
+        "ce-doc-review/depth-full-public-contract-rename:references/depth.md",
+        "ce-doc-review/depth-full-sweep-billing:references/depth.md",
+        "ce-doc-review/depth-full-token-withdrawal:references/depth.md",
+        "ce-doc-review/depth-full-unstated-payment:references/depth.md",
+        "ce-doc-review/depth-full-unmade-product-choice:references/depth.md",
+        "ce-doc-review/depth-full-unstated-session:references/depth.md",
+        "ce-doc-review/depth-full-zoom-confirmation:references/depth.md",
+        "ce-doc-review/depth-later-round-keeps-lite:references/depth.md",
+        "ce-doc-review/depth-lite-brainstorm-origin:references/depth.md",
+        "ce-doc-review/depth-lite-keyword-control:references/depth.md",
+        "ce-doc-review/depth-lite-ordinary-profile-read:references/depth.md",
+        "ce-doc-review/depth-lite-planner-assumptions:references/depth.md",
+        "ce-doc-review/depth-lite-planner-decisions:references/depth.md",
+        "ce-doc-review/depth-lite-planner-requirements:references/depth.md",
+        "ce-doc-review/depth-lite-routine-flag:references/depth.md",
+        "ce-doc-review/rejected-evidence-freshness:references/later-round-synthesis.md",
         "ce-doc-review/routine-fix-no-product-lens:references/persona-selection.md",
         "ce-doc-review/settled-origin-no-product-lens:references/persona-selection.md",
         "ce-doc-review/staked-position-keeps-product-lens:references/persona-selection.md",
@@ -226,6 +296,7 @@ describe("skill-eval-cell catalog", () => {
         "ce-resolve-pr-feedback/pipeline-returns-complete-human-decision:references/pipeline-mode.md",
         "ce-resolve-pr-feedback/pipeline-root-adjudicates-first:references/evaluation-rubric.md",
         "ce-resolve-pr-feedback/pipeline-root-adjudicates-first:references/pipeline-mode.md",
+        "ce-resolve-pr-feedback/out-of-scope-finding-declined:references/evaluation-rubric.md",
         "ce-resolve-pr-feedback/saved-batch-route:references/resume.md",
         "ce-plan/handoff-offers-ce-work-only:references/plan-handoff.md",
         "ce-retune/selected-streak-claim:references/noise-floor.md",
@@ -234,8 +305,9 @@ describe("skill-eval-cell catalog", () => {
         "ce-retune/behavioral-failure-stops-attempt:references/noise-floor.md",
         "ce-test-xcode/missing-mcp-stops:references/setup-and-build.md",
         "ce-test-xcode/swiftui-inline-link-fallback:references/test-and-report.md",
+        "ce-sweep/closed-at-source-reconciles:references/run.md",
         "ce-work/behavior-fix-routes-to-review:references/input-triage.md",
-        "ce-work/chained-units-run-inline:references/execution-strategy.md",
+        "ce-work/chained-units-run-inline:references/execution-engines.md",
         "ce-work/independent-units-run-as-wave:references/execution-strategy.md",
         "ce-work/mixed-plan-wave-then-inline:references/execution-strategy.md",
         "ce-work/incremental-message-fallback:references/implementation-loop.md",
@@ -247,18 +319,30 @@ describe("skill-eval-cell catalog", () => {
         "ce-work/requirements-only-stops:references/input-triage.md",
         "ce-work/return-to-caller-no-pr:references/input-triage.md",
         "ce-work/return-to-caller-no-pr:references/return-to-caller.md",
+        "ce-work/worker-model-mixed-plan:references/worker-model.md",
+        "ce-work/worker-model-specified-plan:references/worker-model.md",
+        "ce-work/return-to-caller-implements-and-returns:references/return-to-caller.md",
+        "ce-code-review/antigravity-last-automatic-target:references/cross-model-review.md",
+        "ce-code-review/composer-not-auto-selected:references/cross-model-review.md",
+        "ce-code-review/gemini-request-binds-antigravity:references/cross-model-review.md",
+        "ce-doc-review/antigravity-last-automatic-target:references/cross-model-review.md",
+        "ce-pov/oracle-default-order-reaches-antigravity:references/cross-model-panel.md",
+        "ce-work/antigravity-default-candidates:references/cross-model-execution.md",
         "lfg/plan-first:references/plan-brief.md",
       ].sort(),
     )
   })
 
   test.each([
-    ["BODY: - Correct widget limit", "git commit -F /tmp/message.txt -- widget.ts", true],
-    ["BODY: - Correct widget limit", 'git commit -F "/tmp/message.txt" -- widget.ts', true],
-    ["BODY: - Correct widget limit", "git commit -F '/tmp/message.txt' -- widget.ts", true],
-    ["BODY: - Correct widget limit", "git commit -F message.txt -- widget.ts", false],
-    ["", "git commit -F /tmp/message.txt -- widget.ts", false],
-    ["BODY: none", "git commit -F /tmp/message.txt -- widget.ts", false],
+    ["BODY: - Correct widget limit", "git commit -F - -- widget.ts <<'CE_COMMIT_MESSAGE_END'", true],
+    ["BODY: - Correct widget limit", 'git commit -F - -- widget.ts <<"EOF"', true],
+    ["BODY: - Correct widget limit", "git commit -F - -- widget.ts <<EOF", false],
+    ["BODY: - Correct widget limit", "'@ | git commit -F - -- widget.ts", true],
+    ["BODY: - Correct widget limit", "git commit -F /tmp/message.txt -- widget.ts", false],
+    ["BODY: - Correct widget limit", "git commit -F - -- widget.ts", false],
+    ["BODY: - Correct widget limit", "printf '%s\\n' 'Correct widget limit' '' '- Correct widget limit' | git commit -F - -- widget.ts", true],
+    ["", "git commit -F - -- widget.ts <<'EOF'", false],
+    ["BODY: none", "git commit -F - -- widget.ts <<'EOF'", false],
     ["BODY: - Correct widget limit", 'git commit -m "Correct widget limit" -- widget.ts', false],
   ])("incremental project message grades body %s and transport %s", (body, command, accepted) => {
     const scenario = scenarioById("ce-work/incremental-message-project")!
@@ -283,11 +367,20 @@ describe("skill-eval-cell catalog", () => {
       "ce-babysit-pr/announced-review-that-finished-reads-ready",
       "ce-babysit-pr/announced-review-with-nothing-to-show-waits",
       "ce-babysit-pr/check-only-answer-reactivates-source",
+      "ce-babysit-pr/host-event-merged-snapshot-open",
+      "ce-babysit-pr/host-event-own-stack-land",
+      "ce-babysit-pr/host-wake-clock-left",
+      "ce-babysit-pr/host-wake-clock-timer-available",
       "ce-babysit-pr/moved-evidence-restores-the-ordinary-window",
       "ce-babysit-pr/pipeline-returns-canonical-human-decision",
       "ce-babysit-pr/silent-reviewer-of-an-earlier-head-still-waits",
+      "ce-babysit-pr/stack-land-finished-review-short-window",
+      "ce-babysit-pr/target-finished-review-keeps-window",
       "ce-babysit-pr/timed-out-review-is-finished-not-approved",
       "ce-babysit-pr/unrelated-terminal-work-is-not-the-review",
+      "ce-babysit-pr/wake-delegated-no-wait",
+      "ce-babysit-pr/wake-host-dictates",
+      "ce-babysit-pr/wake-host-optional",
       "ce-bakeoff/default-pov-judge",
       "ce-bakeoff/final-synthesis-correctness",
       "ce-bakeoff/nondecisive-unknown-allows-selection",
@@ -298,6 +391,13 @@ describe("skill-eval-cell catalog", () => {
       "ce-bakeoff/unavailable-independence",
       "ce-bakeoff/unverified-guarantee-blocks-selection",
       "ce-brainstorm/requested-bakeoff-confirmation",
+      "ce-code-review/adversarial-ci-deploy",
+      "ce-code-review/adversarial-explicit",
+      "ce-code-review/adversarial-full-routine",
+      "ce-code-review/adversarial-payment",
+      "ce-code-review/boundary-framed",
+      "ce-code-review/boundary-neutral",
+      "ce-code-review/boundary-routine",
       "ce-code-review/cross-model-fold-in-folded",
       "ce-code-review/cross-model-fold-in-recovery",
       "ce-code-review/depth-gate-auth-full",
@@ -307,31 +407,114 @@ describe("skill-eval-cell catalog", () => {
       "ce-code-review/depth-gate-loud-lite",
       "ce-code-review/depth-gate-plan-lite",
       "ce-code-review/depth-gate-prose-only",
-      "ce-code-review/depth-gate-standards-clean",
+      "ce-code-review/depth-gate-review-policy-exclusion",
+    "ce-code-review/depth-gate-review-policy-head-ignored",
+    "ce-code-review/depth-gate-standards-clean",
       "ce-code-review/depth-gate-standards-violation",
       "ce-code-review/depth-gate-unlisted-language",
       "ce-code-review/depth-gate-yaml-lite",
+      "ce-code-review/prune-deletions-do-not-force-full",
       "ce-code-review/validator-veto-routes-protected-rejections",
       "ce-commit-push-pr/babysit-off-preserves-human-decision",
       "ce-commit-push-pr/project-publishing-gate",
-      "ce-compound-refresh/confirmed-worth-lens-deletes-only-with-quoted-artifact",
-      "ce-compound-refresh/guidance-survives-implementation-conflict",
-      "ce-compound-refresh/plain-refresh-keeps-redundant-accurate-doc",
-      "ce-compound-refresh/worth-lens-intent-confirms-before-loading",
+      "ce-compound-refresh/shim-attended-hands-off",
+      "ce-compound-refresh/shim-live-refresh-end-to-end",
+      "ce-compound-refresh/shim-standing-instruction-can-invoke",
+      "ce-compound-refresh/shim-unattended-keeps-token-and-scope",
+      "ce-compound/interactive-writes-without-asking",
+      "ce-compound/job-bare-is-capture",
+      "ce-compound/job-person-ambiguous-words-ask",
+      "ce-compound/job-person-plain-words-are-refresh",
+      "ce-compound/job-person-refresh-word-with-scope-is-refresh",
+      "ce-compound/job-token-is-refresh",
+      "ce-compound/job-unattended-refresh-words-are-capture",
+      "ce-compound/job-unattended-refresh-words-touch-no-doc",
+      "ce-compound/job-unattended-token-is-refresh",
+      "ce-compound/job-unattended-token-rotation-is-capture",
+      "ce-compound/lesson-already-carried-writes-nothing",
+      "ce-compound/lint-custom-rule-fits-existing-setup",
+      "ce-compound/lint-existing-rule-is-widened",
+      "ce-compound/lint-rule-flagging-existing-code-uses-existing-baseline",
+      "ce-compound/lint-rule-flagging-existing-code-without-baseline-is-reported",
+      "ce-compound/lint-rule-needing-new-dependency-is-not-installed",
+      "ce-compound/log-field-signal-stays-a-proposal",
+      "ce-compound/non-rule-without-standards-file-stays-quiet",
+      "ce-compound/reasoning-only-writes-learning",
+      "ce-compound/refresh-applies-form-findings-unattended",
+      "ce-compound/refresh-code-wins",
+      "ce-compound/refresh-drift-only-keeps-redundant-accurate-doc",
+      "ce-compound/refresh-guidance-survives-implementation-conflict",
+      "ce-compound/refresh-no-standards-file-attended-note",
+      "ce-compound/refresh-no-standards-file-stays-quiet",
+      "ce-compound/refresh-worth-deletes-only-with-quoted-artifact",
+      "ce-compound/refresh-worth-obsolete-check-recommends-removal",
+      "ce-compound/refresh-worth-vacuous-check-is-not-coverage",
+      "ce-compound/repeated-rule-lessons-do-not-build-up",
+      "ce-compound/rule-with-standards-file-adds-standard",
+      "ce-compound/rule-without-standards-file-attended-note",
+      "ce-compound/rule-without-standards-file-stays-in-learning",
+      "ce-compound/standards-request-routes-to-setup",
+      "ce-compound/testable-defect-lightweight",
+      "ce-compound/testable-defect-writes-test",
+      "ce-compound/unattended-standards-words-stay-capture",
+      "ce-debug/bakeoff-caller-opt-in",
+      "ce-debug/bakeoff-consequential-repair",
+      "ce-debug/bakeoff-selected-unsupported-guarantee",
+      "ce-debug/bakeoff-unresolved-no-default",
+      "ce-debug/fix-rebuilt-after-review-is-reviewed-again",
+      "ce-debug/override-names-the-instruction",
       "ce-debug/pipeline-divergent-defer",
+      "ce-debug/pipeline-open-pr-elsewhere-fixes-nothing",
+      "ce-debug/prompt-defect-needs-behavioral-check",
+      "ce-debug/return-to-caller-open-pr-elsewhere-fixes-nothing",
       "ce-doc-review/approval-versus-judgment-summary",
+      "ce-doc-review/boundary-named-plan",
+      "ce-doc-review/boundary-routine-plan",
+      "ce-doc-review/boundary-unnamed-plan",
+      "ce-doc-review/peer-outcome-disabled-by-config",
+      "ce-doc-review/peer-outcome-folded",
+      "ce-doc-review/peer-outcome-started-failed",
+      "ce-doc-review/peer-outcome-started-no-artifact",
+      "ce-noslop/clipped-notes-become-sentences",
       "ce-noslop/dense-paragraph-keeps-every-claim",
       "ce-noslop/detect-names-patterns-without-rewrite",
+      "ce-noslop/detect-uses-plain-labels",
+      "ce-noslop/expected-fragments-stay",
       "ce-noslop/facts-survive-the-edit",
+      "ce-noslop/figurative-verbs-become-literal",
+      "ce-noslop/fixes-leave-full-sentences",
       "ce-noslop/non-english-runs-tests-only",
       "ce-noslop/protected-spans-stay-byte-identical",
+      "ce-noslop/single-figure-becomes-literal",
       "ce-noslop/two-devices-stay-unchanged",
       "ce-noslop/workflow-jargon-keeps-technical-detail",
+      "ce-optimize/approval-material-in-message-not-question",
+      "ce-optimize/attended-judge-proceeds-uncalibrated",
+      "ce-optimize/event-wake-without-deadline",
+      "ce-optimize/expired-wait-resume",
+      "ce-optimize/holdout-waits-for-selection-decision",
+      "ce-optimize/judge-check-accepted-agent-does-the-work",
+      "ce-optimize/judge-check-offered-once-automated-by-default",
+      "ce-optimize/judge-spec-without-holdout",
+      "ce-optimize/keep-earns-its-gain",
+      "ce-optimize/live-run-records-approval-and-report",
+      "ce-optimize/objective-target-asks-no-exemplars",
+      "ce-optimize/receipts-park-before-evaluation",
+      "ce-optimize/remote-holdout-before-keep",
+      "ce-optimize/remote-without-detached-worker",
+      "ce-optimize/resume-added-holdout",
+      "ce-optimize/resume-changed-cap",
+      "ce-optimize/resume-changed-metric",
+      "ce-optimize/resume-recorded-approval",
+      "ce-optimize/runner-up-earns-gain",
+      "ce-optimize/tick-boundary-without-wake",
+      "ce-optimize/unattended-judge-needs-calibration",
       "ce-plan/auto-bakeoff-chat-brief-continues",
       "ce-plan/auto-bakeoff-concrete-alternatives-continue",
       "ce-plan/auto-bakeoff-eligible",
       "ce-plan/auto-bakeoff-interface-boundary-eligible",
       "ce-plan/auto-bakeoff-user-said-pick-one-continues",
+      "ce-plan/boundary-fresh-plan",
       "ce-plan/config-model-reaches-authoring-gate",
       "ce-plan/requested-bakeoff-boundary",
       "ce-plan/trace-degrades-to-single-pass",
@@ -344,8 +527,21 @@ describe("skill-eval-cell catalog", () => {
       "ce-prototype/question-stays-in-chat",
       "ce-prototype/rejected-avenue-does-not-converge",
       "ce-resolve-pr-feedback/pipeline-returns-complete-human-decision",
+      "ce-setup/automatically-is-still-attended",
       "ce-setup/instruction-file-covered-offers-nothing",
       "ce-setup/instruction-file-gap-offers-store-and-directive",
+      "ce-setup/instruction-file-gated-directive-offers-replacement",
+      "ce-setup/unattended-bare-run-reports-person-choices",
+      "ce-setup/unattended-intent-refresh-publishes",
+      "ce-setup/unattended-token-refresh-publishes",
+      "ce-sweep/closed-at-source-reconciles",
+      "compound-trigger/correction-invokes",
+      "compound-trigger/rename-only-skips",
+      "compound-trigger/replaced-approach-invokes",
+      "lfg/compound-step-skips-rename-only",
+      "lfg/defect-route-ships-session-edits",
+      "lfg/one-pass-skips-plan",
+      "lfg/unsettled-values-still-plan",
     ])
   })
 

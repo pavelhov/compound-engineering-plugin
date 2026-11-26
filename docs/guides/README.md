@@ -28,7 +28,7 @@ Artifact paths shown throughout these pages (`docs/plans/`, `docs/solutions/`, `
 └── /ce-compound      "Capture what we learned."
 ```
 
-`/ce-compound` is the closer that makes the loop *compound*: it writes learnings into `docs/solutions/`, which the next iteration's `/ce-brainstorm` and `/ce-plan` read as grounding. `/ce-ideate` is an optional prelude for when you don't yet know what to work on. Everything else in this catalog is either an anchor around the loop or an on-demand tool used when a specific need arises, not a step you walk through every time.
+`/ce-compound` is the closer that makes the loop *compound*: it writes learnings into `docs/solutions/`, which the next iteration's `/ce-plan` reads as grounding. `/ce-ideate` is an optional prelude for when you don't yet know what to work on. Everything else in this catalog is either an anchor around the loop or an on-demand tool used when a specific need arises, not a step you walk through every time.
 
 ---
 
@@ -42,7 +42,7 @@ The steps of every engineering iteration. `/ce-ideate` runs only when you need t
 | [`/ce-brainstorm`](./ce-brainstorm.md) | Define what something should become: one question at a time, ask only decisions, named gap lenses, requirements-only unified plan |
 | [`/ce-plan`](./ce-plan.md) | Bound execution with guardrails (U-IDs, test scenarios, automatic confidence check). WHAT decisions, not HOW code |
 | [`/ce-work`](./ce-work.md) | Execute an implementation-ready plan: figure out the HOW with code in front of you, then ship through quality gates |
-| [`/ce-compound`](./ce-compound.md) | Close the loop by writing what you learned into `docs/solutions/` so the next iteration can read it |
+| [`/ce-compound`](./ce-compound.md) | Close the loop by holding what you learned in its cheapest form: a test or lint rule, a coding standard, or a learning in `docs/solutions/` |
 
 ---
 
@@ -55,7 +55,8 @@ Skills that anchor, feed, or maintain the loop without being steps inside it.
 | [`/ce-strategy`](./ce-strategy.md) | Create or maintain `STRATEGY.md`, the upstream anchor `ce-ideate`, `ce-brainstorm`, and `ce-plan` read as grounding |
 | [`/ce-product-pulse`](./ce-product-pulse.md) | Outer observation loop: a time-windowed report on usage, performance, errors, and follow-ups, saved to `docs/pulse-reports/` |
 | [`/ce-sweep`](./ce-sweep.md) | Recurring feedback sweep: ingest Slack/GitHub items (email experimental), acknowledge at source, and keep an `/lfg`-ready rolling plan |
-| [`/ce-compound-refresh`](./ce-compound-refresh.md) | Maintain `docs/solutions/` over time (Keep / Update / Consolidate / Replace / Delete), Interactive or Autofix |
+| [`/ce-retro`](./ce-retro.md) | Look back over this session, or a scope you name across harnesses, keep friction with a recorded cost that still happens, land approved environment fixes, and route the rest |
+| [`/ce-compound-refresh`](./ce-compound-refresh.md) | Deprecated: the old name for `/ce-compound refresh`, which keeps lessons accurate and retires standards a check now covers. It prints a notice and runs the refresh |
 
 ---
 
@@ -72,7 +73,7 @@ Invoked when a specific need arises, not part of any chain.
 | [`/ce-debug`](./ce-debug.md) | Find the root cause of broken behavior: causal chain, predictions, then an optional fix and PR handoff |
 | [`/ce-code-review`](./ce-code-review.md) | Structured review of a diff or PR: skill-local personas, confidence-gated findings, and the rules you write in `CODING_STANDARDS.md` |
 | [`/ce-doc-review`](./ce-doc-review.md) | Structured review of a requirements or plan document: findings, not a holistic verdict |
-| [`/ce-simplify-code`](./ce-simplify-code.md) | Refine recently changed code for reuse, quality, and efficiency, with behavior preserved |
+| [`/ce-simplify-code`](./ce-simplify-code.md) | Refine changed code for reuse, quality, and efficiency, and prune low-value tests and comments, with behavior preserved |
 | [`/ce-optimize`](./ce-optimize.md) | Keep confirmed improvements to a measurable target: attribute cost or score variants |
 | [`/ce-retune`](./ce-retune.md) | Retune a skill corpus for a new model: baseline, noise floor, then measured cut passes |
 
@@ -92,7 +93,7 @@ Invoked when a specific need arises, not part of any chain.
 |-------|-------------|
 | [`/ce-commit`](./ce-commit.md) | Local git commit(s) only: convention-aware, named-file staging, file-level splits (up to three). No push. |
 | [`/ce-commit-push-pr`](./ce-commit-push-pr.md) | Working changes to an open PR. Three modes: full ship, rewrite an existing description, or description-only from a URL. |
-| [`/ce-babysit-pr`](./ce-babysit-pr.md) | Watch an open PR over time: incoming review via `/ce-resolve-pr-feedback`, CI via `/ce-debug`. Does not merge under `target` or `stack-ready`; `stack-land` can merge a confirmed managed stack. |
+| [`/ce-babysit-pr`](./ce-babysit-pr.md) | Watch an open PR over time: incoming review via `/ce-resolve-pr-feedback`, CI via `/ce-debug`. Judges whether an old PR still belongs before updating it. Does not merge under `target` or `stack-ready`; `stack-land` can merge a confirmed managed stack. |
 | [`/ce-worktree`](./ce-worktree.md) | Isolate work in a git worktree: detect existing isolation, prefer the host's native tool, else plain git |
 
 ---
@@ -125,6 +126,7 @@ Invoked when a specific need arises, not part of any chain.
 
 | Skill | Description |
 |-------|-------------|
+| [`/ce-help`](./ce-help.md) | Find where your work sits on the loop, which skill fits, or how setup, config, and cost work. Recommends the next command; starts nothing. Manual invoke only. |
 | [`/ce-noslop`](./ce-noslop.md) | Rewrite, check, or draft prose with no AI tells that reads on the first read; every fact preserved. Sibling skills invoke it where they write. |
 | [`/wtf`](./wtf.md) | Explain the last message, or a supplied file, link, or passage, in plain language. Explains rather than rewrites; keeps caveats and adds no claims. Manual invoke only. |
 | [`/ce-promote`](./ce-promote.md) | Draft announcement copy for a shipped feature (X, changelog, LinkedIn, email, blog, demo). Drafts only; never posts. |
@@ -132,7 +134,7 @@ Invoked when a specific need arises, not part of any chain.
 | [`/ce-dogfood`](./ce-dogfood.md) | Hands-off browser QA of the branch: map flows, fix small breakages, write a report. Manual invoke only. |
 | [`/ce-test-browser`](./ce-test-browser.md) | End-to-end browser tests of the current diff using a host-native browser with `agent-browser` fallback. Does not check out a PR or branch. |
 | [`/ce-test-xcode`](./ce-test-xcode.md) | Build and test an iOS app on the simulator (screenshots, logs, human verification). Not XCUITest. |
-| [`/ce-setup`](./ce-setup.md) | Diagnose optional tool capabilities, create or repair repo `config.yaml`, and scaffold a Compound Pack |
+| [`/ce-setup`](./ce-setup.md) | Diagnose optional tool capabilities, create or repair repo `config.yaml`, scaffold a Compound Pack, and draft or refresh coding standards, including on a schedule |
 | [`/ce-handoff`](./ce-handoff.md) | Write a session handoff, or find and orient from a selected source. Does not auto-continue. |
 
 ---

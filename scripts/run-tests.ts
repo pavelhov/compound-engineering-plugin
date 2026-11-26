@@ -9,11 +9,11 @@
 // assertion failure or error anywhere keeps the first result with no re-run,
 // so a defect that only shows under parallel load is not retried away.
 import { type ChildProcess, spawn, spawnSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { constants, tmpdir } from "node:os"
 import path from "node:path"
 
-const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/
+const TEST_FILE = /(?:\.(?:test|spec)|_(?:test|spec))\.[cm]?[jt]sx?$/
 
 export type JunitCase = { file: string; failure: string | null; describe: string[]; name: string; message: string }
 
@@ -175,7 +175,30 @@ function run(args: string[]): number {
   return result.status ?? 1
 }
 
-type PassResult = { status: number; stalled: boolean; lostExit: boolean; interrupted: boolean }
+type PassOutcome =
+  | { kind: "exited"; status: number }
+  | { kind: "interrupted"; status: number }
+  | { kind: "lostExit" }
+  | { kind: "stalled" }
+
+const signalStatus = (signal: NodeJS.Signals): number => 128 + (constants.signals[signal] ?? 0)
+
+export function passOutcome(end: {
+  code: number | null
+  signal: NodeJS.Signals | null
+  interrupted: NodeJS.Signals | null
+  lostExit: boolean
+  stalled: boolean
+}): PassOutcome {
+  const killed = end.lostExit || end.stalled
+  if (end.interrupted) {
+    const status = killed ? signalStatus(end.interrupted) : end.code ?? signalStatus(end.signal ?? end.interrupted)
+    return { kind: "interrupted", status }
+  }
+  if (end.lostExit) return { kind: "lostExit" }
+  if (end.stalled) return { kind: "stalled" }
+  return { kind: "exited", status: end.code ?? (end.signal ? signalStatus(end.signal) : 0) }
+}
 
 /** Every live process that belongs to the pass: its descendants plus anything left in its process group. */
 function passProcesses(root: number): PsRow[] {
@@ -219,7 +242,7 @@ function killPass(child: ChildProcess, signal: NodeJS.Signals, extra: number[] =
  * job and nothing is reported. The pass runs in its own process group so a
  * stall or an interrupt can take down every process it started.
  */
-function runPass(args: string[], limitMs: number | null, lostMs: number): Promise<PassResult> {
+function runPass(args: string[], limitMs: number | null, lostMs: number): Promise<PassOutcome> {
   return new Promise((resolve, reject) => {
     let child: ChildProcess | undefined
     let stalled = false
@@ -277,10 +300,7 @@ function runPass(args: string[], limitMs: number | null, lostMs: number): Promis
       clearTimers()
       // Anything still in the group outlived the pass; do not leave it running.
       killPass(child, "SIGKILL")
-      // A signal death keeps its conventional status (130 for SIGINT), so Ctrl-C is not a test failure.
-      const signalled = signal ?? interrupted
-      const status = stalled || lostExit ? 1 : code ?? (signalled ? 128 + (constants.signals[signalled] ?? 0) : 0)
-      resolve({ status, stalled, lostExit, interrupted: interrupted !== null })
+      resolve(passOutcome({ code, signal, interrupted, lostExit, stalled }))
     })
   })
 }
@@ -291,6 +311,26 @@ async function main(argv: string[]): Promise<number> {
     console.error(`Missing dependencies: ${missing.join(", ")}. Run \`bun install\`, then re-run the tests.`)
     return 1
   }
+  const selectionFlags = argv.filter((arg) => arg.startsWith("--changed-since="))
+  if (selectionFlags.length) {
+    argv = argv.filter((arg) => !arg.startsWith("--changed-since="))
+    if (selectionFlags.length !== 1 || argv.some((arg) => arg !== "--update-timings" && !arg.startsWith("--timings="))) {
+      console.error("--changed-since cannot be combined with other filters or options; only --timings=<path> and --update-timings are supported.")
+      return 1
+    }
+    const { changedFilesForBase } = await import("./ci-scope")
+    const { discoverTests, selectTests } = await import("./test-scope")
+    let summary: string
+    try {
+      const selection = selectTests(changedFilesForBase(selectionFlags[0].slice("--changed-since=".length)), discoverTests())
+      summary = `Linux tests: ${selection.mode}; ${selection.files.length}/${selection.total} files; groups: ${selection.groups.join(", ") || "baseline only"}; ${selection.reason}.`
+      if (selection.mode === "selected" && selection.files.length) argv.push(...selection.files.map((file) => `./${file}`))
+    } catch (error) {
+      summary = `Linux tests: full; test discovery unavailable (${error instanceof Error ? error.message : String(error)}).`
+    }
+    console.log(summary)
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`)
+  }
   const reportDir = mkdtempSync(path.join(tmpdir(), "bun-test-report-"))
   const report = path.join(reportDir, "junit.xml")
   try {
@@ -299,16 +339,16 @@ async function main(argv: string[]): Promise<number> {
     const lostMs = lostExitMs(process.env)
     let pass = await runPass(passArgs, limitMs, lostMs)
     // A killed pass writes no junit report, so the whole pass is repeated, once, in a fresh process.
-    if (pass.lostExit) {
+    if (pass.kind === "lostExit") {
       console.error("Re-running the whole first pass once in a fresh process.\n")
       pass = await runPass(passArgs, limitMs, lostMs)
     }
     // A stall is never re-run into a green result: without a lost-exit zombie its cause is unknown.
-    if (pass.stalled || pass.lostExit) {
+    if (pass.kind === "stalled" || pass.kind === "lostExit") {
       console.error("\nNo junit report, so no recap: the test pass was killed before a report was written. See bun's output above.")
       return 1
     }
-    if (pass.interrupted) return pass.status
+    if (pass.kind === "interrupted") return pass.status
     const first = pass.status
     if (first === 0) return 0
 

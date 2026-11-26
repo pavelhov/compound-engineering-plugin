@@ -33,7 +33,8 @@ export type ArmGrade = {
  * — including the prompt — to stderr, so without this the echo outranks the answer.
  */
 function isPlaceholder(value: string): boolean {
-  return /<[^>]*>/.test(value)
+  const outsideCodeSpans = value.replace(/`[^`]*`/g, "")
+  return /<[^>]*>/.test(outsideCodeSpans)
 }
 
 function lastTrailer(text: string, name: string): string {
@@ -194,6 +195,49 @@ export function parseTrailers(...parts: string[]): Trailer | null {
   return null
 }
 
+/**
+ * The JSON object the answer opens with, parsed up to its closing brace so the eval
+ * trailers after it are ignored. An answer that starts with anything else has none:
+ * a mode:agent caller cannot parse a receipt that prose precedes.
+ */
+export function leadingJsonObject(text: string): unknown {
+  const body = text.trimStart()
+  if (!body.startsWith("{")) return undefined
+  let depth = 0
+  let inString = false
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]
+    if (inString) {
+      if (ch === "\\") i++
+      else if (ch === '"') inString = false
+    } else if (ch === '"') inString = true
+    else if (ch === "{") depth++
+    else if (ch === "}" && --depth === 0) {
+      try {
+        return JSON.parse(body.slice(0, i + 1))
+      } catch {
+        return undefined
+      }
+    }
+  }
+  return undefined
+}
+
+function parseJsonFile(file: string): unknown {
+  try {
+    return JSON.parse(readText(file))
+  } catch {
+    return undefined
+  }
+}
+
+function walkFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) return []
+  return fs.readdirSync(dir, { recursive: true, encoding: "utf8" })
+    .map((entry) => path.join(dir, entry))
+    .filter((file) => fs.statSync(file).isFile())
+}
+
 function readText(file: string): string {
   try {
     return fs.readFileSync(file, "utf8")
@@ -307,12 +351,21 @@ export function gradeHost(opts: {
       reasons.push(`missing required text (any of): ${options.join(" | ")}`)
     }
   }
-  if (opts.grade.result_must_not_include?.length) {
-    const block = resultBlock(stdout)
+  if (opts.grade.field_must_not_include?.length && !scopeField) {
+    reasons.push("field_must_not_include needs must_include_field")
+  }
+  for (const needle of scopedText ? opts.grade.field_must_not_include ?? [] : []) {
+    if (scopedText.includes(needle.toLowerCase())) reasons.push(`forbidden text in ${scopeField} field: ${needle}`)
+  }
+  if (opts.grade.result_must_not_include?.length || opts.grade.result_must_include?.length) {
+    const block = resultBlock(stdout)?.toLowerCase() ?? null
     if (block === null) reasons.push("missing RESULT-START/RESULT-END block")
-    else for (const needle of opts.grade.result_must_not_include) {
-      if (block.toLowerCase().includes(needle.toLowerCase())) {
-        reasons.push(`source phrase survived in RESULT block: ${needle}`)
+    else {
+      for (const needle of opts.grade.result_must_not_include ?? []) {
+        if (block.includes(needle.toLowerCase())) reasons.push(`source phrase survived in RESULT block: ${needle}`)
+      }
+      for (const needle of opts.grade.result_must_include ?? []) {
+        if (!block.includes(needle.toLowerCase())) reasons.push(`missing from RESULT block: ${needle}`)
       }
     }
   }
@@ -383,11 +436,68 @@ export function gradeHost(opts: {
       reasons.push(`${check.path} does not contain ${JSON.stringify(check.needle)}`)
     }
   }
+  for (const check of opts.grade.workspace_lacks ?? []) {
+    const file = path.join(workspace, check.path)
+    if (check.needle === undefined) {
+      if (fs.existsSync(file)) reasons.push(`${check.path} exists`)
+    } else if (!fs.existsSync(file)) {
+      reasons.push(`${check.path} is missing`)
+    } else if (readText(file).includes(check.needle)) {
+      reasons.push(`${check.path} still contains ${JSON.stringify(check.needle)}`)
+    }
+  }
+  for (const check of opts.grade.workspace_tree ?? []) {
+    const files = walkFiles(path.join(workspace, check.dir)).map(readText)
+    if (check.contains !== undefined && !files.some((text) => text.includes(check.contains!))) {
+      reasons.push(`no file under ${check.dir} contains ${JSON.stringify(check.contains)}`)
+    }
+    if (check.lacks !== undefined && files.some((text) => text.includes(check.lacks!))) {
+      reasons.push(`a file under ${check.dir} contains ${JSON.stringify(check.lacks)}`)
+    }
+  }
+  for (const check of opts.grade.json_field ?? []) {
+    const source = check.path ?? "answer"
+    const parsed = check.path ? parseJsonFile(path.join(workspace, check.path)) : leadingJsonObject(stdout)
+    if (parsed === undefined) {
+      reasons.push(check.path ? `${source} is not valid JSON` : "answer does not begin with a JSON object")
+      continue
+    }
+    const value = check.field.split(".").reduce<unknown>(
+      (node, key) => (node && typeof node === "object" ? (node as Record<string, unknown>)[key] : undefined),
+      parsed,
+    )
+    if (typeof value !== "string" || !check.any_of.includes(value)) {
+      reasons.push(`${source} ${check.field} is ${JSON.stringify(value)}, expected one of ${JSON.stringify(check.any_of)}`)
+    }
+  }
+  const shimLog = readText(path.join(opts.hostDir, ".bin", SHIM_LOG))
+  for (const needle of opts.grade.shim_log_must ?? []) {
+    if (!shimLog.includes(needle)) reasons.push(`expected text never reached shim log: ${needle}`)
+  }
   for (const needle of opts.grade.shim_log_must_not ?? []) {
     // The attempt, not the model's account of it: a shimmed command fails, so a
     // skill can truthfully report ACTIONS: none and still have made the call.
-    const log = readText(path.join(opts.hostDir, ".bin", SHIM_LOG))
-    if (log.includes(needle)) reasons.push(`forbidden text reached shim log: ${needle}`)
+    if (shimLog.includes(needle)) reasons.push(`forbidden text reached shim log: ${needle}`)
+  }
+  if (opts.grade.workspace_unchanged) {
+    const read = (name: string) => {
+      const file = path.join(opts.hostDir, name)
+      if (!fs.existsSync(file)) return null
+      const entries = (JSON.parse(fs.readFileSync(file, "utf8")) as { entries: Array<{ path: string; sha256?: string }> }).entries
+      return new Map(entries.map((e) => [e.path, e.sha256 ?? "dir"]))
+    }
+    const seed = read("workspace-seed.json")
+    const final = read("workspace-final.json")
+    if (!seed || !final) reasons.push("no workspace fingerprint before and after the run")
+    else {
+      const changed = [...new Set([...seed.keys(), ...final.keys()])].filter((p) => seed.get(p) !== final.get(p)).sort()
+      if (changed.length) reasons.push(`workspace changed: ${changed.slice(0, 5).join(", ")}`)
+    }
+  }
+  if (opts.grade.no_new_commits) {
+    const file = path.join(opts.hostDir, "git-new-commits.txt")
+    if (!fs.existsSync(file)) reasons.push("no record of commits since the seed (needs git_init)")
+    else if (readText(file).trim()) reasons.push(`run committed after the seed: ${readText(file).trim().split("\n")[0]}`)
   }
   if (opts.grade.committed_must) {
     const head = readText(path.join(opts.hostDir, "git-head-files.txt"))

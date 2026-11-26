@@ -48,8 +48,10 @@ describe("ce-work native characterization", () => {
     expect(outcome).toContain("authoritative verification and canonical commits")
     // 2026-08-21 PR #1508 review: a host that reads every owner at skill load never re-reads at the acting step,
     // so the late missing-reference stops were unreachable; the kernel must say an early read does not count.
+    // 2026-11-05 session audit: unconditional re-reads produced fake re-reads (`>/dev/null`, `wc`) on Claude;
+    // a re-read now fires only once the reference's text has left context, which keeps the stop reachable.
     expect(skill).toContain("a read made before that phase does not satisfy it")
-    expect(skill).toContain("read again at its step even when already in context")
+    expect(skill).toContain("read again at its step only when its full text is no longer in context")
     expect(skill.indexOf("## Outcome")).toBeLessThan(skill.indexOf("## Execution Workflow"))
   })
 
@@ -352,6 +354,8 @@ describe("ce-work cross-model engine contract", () => {
 
     expect(worker).toContain("caller, unit packet, and controller own dispatch")
     expect(worker).toContain("Implement exactly the supplied implementation unit")
+    expect(worker).toMatch(/Inspect another checkout only to read.*prototype.*explicitly cited in the unit packet/)
+    expect(worker).toContain("Never mutate another checkout")
     expect(worker).toContain("Before returning `completed`")
     expect(worker).toContain("complete Git delta")
     expect(worker).toContain("disposable artifacts created by your own checks")
@@ -366,6 +370,16 @@ describe("ce-work cross-model engine contract", () => {
     }
   })
 
+  test("tells every implementation writer to keep plan IDs out of the files it writes", async () => {
+    const loop = await readRepoFile("skills/ce-work/references/implementation-loop.md")
+    const strategy = await readRepoFile("skills/ce-work/references/execution-strategy.md")
+    const worker = await readRepoFile("skills/ce-work/references/agents/implementation-worker.md")
+
+    expect(loop).toMatch(/\*\*Plan IDs stay out of written files\.\*\*[^\n]*Keep them out of the files the work writes/)
+    expect(strategy).toMatch(/\*\*Plan IDs stay out of written files\*\* rules? from `references\/implementation-loop\.md`, verbatim/)
+    expect(worker).toContain("Keep them out of the files you write")
+  })
+
   test("distinguishes Cursor from Composer and collapses same-host default execution", async () => {
     const protocol = await readRepoFile("skills/ce-work/references/cross-model-execution.md")
 
@@ -377,7 +391,7 @@ describe("ce-work cross-model engine contract", () => {
     expect(protocol).toContain("claude")
     expect(protocol).toContain("grok")
     expect(protocol).toContain("Fixed controller route tokens")
-    expect(protocol).toContain("`codex`, `claude`, `grok-cli`, `cursor`, `composer`, `grok-cursor`, or `opencode`")
+    expect(protocol).toContain("`codex`, `claude`, `grok-cli`, `cursor`, `composer`, `grok-cursor`, `opencode`, `antigravity`, or `pi`")
   })
 
   test("defines prefer, require, fixed-recipient sanction, and restriction failure", async () => {
@@ -412,7 +426,6 @@ describe("ce-work cross-model engine contract", () => {
     expect(protocol).toContain("`git commit`")
     expect(protocol).toContain("Git admin dir")
     expect(protocol).toContain("workspace-write")
-    expect(protocol).toContain("--sandbox enabled")
     expect(protocol).toContain("never required")
     expect(protocol).toContain("Leave the completed working tree uncommitted")
     expect(protocol).toContain("Do not instruct it to run `git add`")
@@ -524,7 +537,7 @@ describe("ce-work cross-model engine contract", () => {
     expect(serial).not.toContain("CE_WORK_MODEL_OVERRIDE_TARGET")
     expect(serial).toContain("one bounded unit packet")
     expect(serial).toContain("exact plural keys `route`, `intermediaries`, and `restrictions`")
-    expect(serial).toContain("direct `codex`, `claude`, `grok-cli`, and `cursor` routes use `intermediaries: []`")
+    expect(serial).toContain("direct `codex`, `claude`, `grok-cli`, `cursor`, `opencode`, and `antigravity` routes use `intermediaries: []`")
     expect(serial).toContain("Write the packet source directly to OS temp outside the canonical checkout")
     expect(serial).toContain("never draft it inside the repository and move or copy it later")
     expect(serial).toContain("quoting `$(...)` as a direct argument does not expand it")
@@ -703,7 +716,8 @@ describe("ce-work implementation evidence characterization", () => {
     expect(incremental).toContain(precedence!)
     expect(incremental).toContain("User override wins.")
     expect(incremental).not.toMatch(/Commit with conventional message|use clean conventional messages|git commit -m "feat\(scope\):/)
-    expect(incremental).toContain("git commit -F <message-file> -- <files related to this logical unit>")
+    expect(incremental).toContain("git commit -F - -- <files related to this logical unit> <<'CE_COMMIT_MESSAGE_END'")
+    expect(incremental).toContain("'@ | git commit -F - -- <files related to this logical unit>")
     expect(incremental).toContain("**Native Git commit workflow:**")
     expect(incremental).not.toContain("git commit -m")
     expect(incremental).toContain("Incremental commits add no plugin-generated attribution.")

@@ -1,10 +1,12 @@
-import { afterAll, describe, expect, test } from "bun:test"
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test"
 import { spawn, spawnSync } from "node:child_process"
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { junitCases, lostExitMs, lostExitZombies, parsePs, passTimeoutMs, passthroughArgs, rerunCandidates } from "../scripts/run-tests"
-import { alive } from "./helpers/process"
+import { junitCases, lostExitMs, lostExitZombies, parsePs, passOutcome, passTimeoutMs, passthroughArgs, rerunCandidates } from "../scripts/run-tests"
+import { alive, survivors } from "./helpers/process"
+
+setDefaultTimeout(30_000)
 
 const junit = (suites: string) => `<?xml version="1.0"?>\n<testsuites name="bun test">\n${suites}\n</testsuites>`
 const ok = (file: string, n: number) => `<testcase name="t${n}" classname="g" time="0" file="${file}" line="${n}" />`
@@ -194,7 +196,7 @@ test("never finishes", async () => {
 `
 
 describe("run-tests: stall watchdog", () => {
-  test("a pass that outlives its limit fails with a process listing and leaves nothing running", () => {
+  test("a pass that outlives its limit fails with a process listing and leaves nothing running", async () => {
     const dir = fixture(HANG)
     const started = Date.now()
     const r = spawnSync(process.execPath, [RUNNER, "./fixture.test.ts"], {
@@ -213,8 +215,7 @@ describe("run-tests: stall watchdog", () => {
       expect(r.stderr).toContain("stalled")
       expect(r.stderr).toContain("sleep 300")
       expect(lastLine(r.stderr)).toContain("killed before a report was written")
-      expect(alive(worker)).toBe(false)
-      expect(alive(orphan)).toBe(false)
+      expect(await survivors([worker, orphan])).toEqual([])
     } finally {
       for (const pid of [worker, orphan]) if (alive(pid)) process.kill(pid, "SIGKILL")
     }
@@ -235,7 +236,7 @@ describe("run-tests: stall watchdog", () => {
     expect(r.stderr).not.toContain("bun install")
   }, 90_000)
 
-  test("a passing run leaves nothing from its pass running", () => {
+  test("a passing run leaves nothing from its pass running", async () => {
     const dir = fixture(`import { test } from "bun:test"
 import { spawnSync } from "node:child_process"
 test("leaves an orphan behind", () => { spawnSync("sh", ["-c", "sleep 300 >/dev/null 2>&1 & echo $! > orphan.pid"]) })
@@ -244,7 +245,7 @@ test("leaves an orphan behind", () => { spawnSync("sh", ["-c", "sleep 300 >/dev/
     const orphan = readPid(path.join(dir, "orphan.pid"))
     try {
       expect(r.status).toBe(0)
-      expect(alive(orphan)).toBe(false)
+      expect(await survivors([orphan])).toEqual([])
     } finally {
       if (alive(orphan)) process.kill(orphan, "SIGKILL")
     }
@@ -272,10 +273,7 @@ test("leaves an orphan behind", () => { spawnSync("sh", ["-c", "sleep 300 >/dev/
       runner.kill(signal)
       // The signal's conventional status, so an interrupt is not mistaken for a test failure.
       expect(await exited).toBe(status)
-      const settle = Date.now() + 5_000
-      while (alive(worker) && Date.now() < settle) await Bun.sleep(100)
-      expect(alive(worker)).toBe(false)
-      expect(alive(orphan)).toBe(false)
+      expect(await survivors([worker, orphan])).toEqual([])
     } finally {
       for (const pid of [worker, orphan]) if (alive(pid)) process.kill(pid, "SIGKILL")
       if (runner.exitCode === null) runner.kill("SIGKILL")
@@ -348,6 +346,28 @@ describe.skipIf(process.platform === "win32")("run-tests: lost child-exit", () =
   104   103   100 Z       00:30 [git] <defunct>
 `)
     expect(lostExitZombies(rows).map((r) => r.pid)).toEqual([102])
+  })
+})
+
+describe("run-tests: pass outcome", () => {
+  const end = { code: null, signal: null, interrupted: null, lostExit: false, stalled: false } as const
+
+  test("an interrupt outranks the runner's own kill, so Ctrl-C never starts a re-run", () => {
+    const killed = { ...end, signal: "SIGKILL", interrupted: "SIGINT" } as const
+    expect(passOutcome({ ...killed, lostExit: true })).toEqual({ kind: "interrupted", status: 130 })
+    expect(passOutcome({ ...killed, stalled: true })).toEqual({ kind: "interrupted", status: 130 })
+  })
+
+  test("a kill with no interrupt is a lost exit before it is a stall", () => {
+    expect(passOutcome({ ...end, signal: "SIGKILL", lostExit: true, stalled: true })).toEqual({ kind: "lostExit" })
+    expect(passOutcome({ ...end, signal: "SIGKILL", stalled: true })).toEqual({ kind: "stalled" })
+  })
+
+  test("an unkilled pass keeps its exit code, or the conventional status of its signal", () => {
+    expect(passOutcome({ ...end, code: 1 })).toEqual({ kind: "exited", status: 1 })
+    expect(passOutcome({ ...end, signal: "SIGTERM" })).toEqual({ kind: "exited", status: 143 })
+    expect(passOutcome({ ...end, code: 1, interrupted: "SIGINT" })).toEqual({ kind: "interrupted", status: 1 })
+    expect(passOutcome({ ...end, signal: "SIGINT", interrupted: "SIGINT" })).toEqual({ kind: "interrupted", status: 130 })
   })
 })
 
@@ -459,4 +479,74 @@ describe("run-tests: dependency preflight", () => {
     expect(r.stderr).not.toContain(RECAP)
     expect(existsSync(path.join(repo, "ran"))).toBe(false)
   }, 60_000)
+})
+
+describe("run-tests: changed input selection", () => {
+  function selectionFixture(body = 'import { test } from "bun:test"; import { writeFileSync } from "node:fs"; test("baseline", () => writeFileSync("baseline-ran", "yes"))') {
+    const dir = fixture(body)
+    const home = path.join(dir, ".test-home")
+    mkdirSync(home)
+    writeFileSync(path.join(dir, ".gitignore"), "/.test-home/\n")
+    const env = { PATH: process.env.PATH, HOME: home, GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" }
+    for (const [file, marker] of [["tests/ce-babysit-pr-snapshot.test.ts", "babysit-ran"], ["tests/skills/ce-prototype-server.test.ts", "prototype-ran"]]) {
+      mkdirSync(path.dirname(path.join(dir, file)), { recursive: true })
+      writeFileSync(path.join(dir, file), `import { test } from "bun:test"; import { writeFileSync } from "node:fs"; test("sentinel", () => writeFileSync(${JSON.stringify(path.join(dir, marker))}, "yes"))`)
+    }
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: dir, env, encoding: "utf8" })
+      expect(result.status, result.stderr).toBe(0)
+      return result.stdout.trim()
+    }
+    git("init", "-b", "main")
+    git("add", ".")
+    git("-c", "commit.gpgsign=false", "commit", "-m", "seed")
+    const base = git("rev-parse", "HEAD")
+    mkdirSync(path.join(dir, "skills/ce-babysit-pr"), { recursive: true })
+    writeFileSync(path.join(dir, "skills/ce-babysit-pr/SKILL.md"), "changed")
+    git("add", ".")
+    git("-c", "commit.gpgsign=false", "commit", "-m", "change")
+    return { dir, env, base, git }
+  }
+
+  test.each(["selected", "default", "invalid", "empty", "unstaged", "staged", "untracked"])("%s invocation executes its complete promised coverage", (mode) => {
+    const { dir, env, base, git } = selectionFixture()
+    if (mode === "unstaged" || mode === "staged") writeFileSync(path.join(dir, "fixture.test.ts"), 'import { test } from "bun:test"; import { writeFileSync } from "node:fs"; test("changed baseline", () => writeFileSync("baseline-ran", "yes"))')
+    if (mode === "staged") git("add", "fixture.test.ts")
+    if (mode === "untracked") writeFileSync(path.join(dir, "new-input.ts"), "export const value = 1")
+    const args = mode === "default" ? [] : [`--changed-since=${mode === "invalid" ? "bad" : mode === "empty" ? "" : base}`]
+    const result = spawnSync(process.execPath, [RUNNER, ...args], { cwd: dir, env, encoding: "utf8", timeout: 30_000 })
+    expect(result.status, result.stderr).toBe(0)
+    expect(existsSync(path.join(dir, "baseline-ran"))).toBe(true)
+    expect(existsSync(path.join(dir, "babysit-ran"))).toBe(true)
+    expect(existsSync(path.join(dir, "prototype-ran"))).toBe(mode !== "selected")
+    if (mode === "selected") expect(result.stdout).toContain("2/3 files; groups: babysit")
+  })
+
+  test("selected timeout-only retry keeps timing options and excludes unrelated groups", () => {
+    const { dir, env, base } = selectionFixture(`import { test } from "bun:test"
+import { existsSync, writeFileSync } from "node:fs"
+test("timeout once", async () => {
+  if (!existsSync("attempted")) {
+    writeFileSync("attempted", "yes")
+    await new Promise(() => {})
+  }
+  writeFileSync("retried", "yes")
+}, 100)
+`)
+    const timing = path.join(dir, "timings.json")
+    const result = spawnSync(process.execPath, [RUNNER, `--changed-since=${base}`, `--timings=${timing}`, "--update-timings"], { cwd: dir, env, encoding: "utf8", timeout: 30_000 })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stderr).toContain("Re-running 1 file(s)")
+    expect(existsSync(path.join(dir, "retried"))).toBe(true)
+    expect(existsSync(path.join(dir, "prototype-ran"))).toBe(false)
+    expect(existsSync(timing)).toBe(true)
+  })
+
+  test.each(["./fixture.test.ts", "-t=baseline", "--changed", "--only", "--shard=1/2", "--path-ignore-patterns=tests/**"])("rejects narrowing argument %s", (arg) => {
+    const { dir, env, base } = selectionFixture()
+    const result = spawnSync(process.execPath, [RUNNER, `--changed-since=${base}`, arg], { cwd: dir, env, encoding: "utf8", timeout: 30_000 })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain("cannot be combined")
+    expect(existsSync(path.join(dir, "baseline-ran"))).toBe(false)
+  })
 })

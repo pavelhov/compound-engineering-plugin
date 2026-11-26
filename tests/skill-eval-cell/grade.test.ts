@@ -147,6 +147,51 @@ describe("skill-eval-cell host grade", () => {
     expect(fail.ok).toBe(false)
   })
 
+  test("workspace_tree finds a needle in a file the run named and rejects a forbidden one anywhere", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "grade-tree-"))
+    fs.mkdirSync(path.join(dir, "workspace/docs/solutions/logic"), { recursive: true })
+    fs.writeFileSync(path.join(dir, "workspace/docs/solutions/logic/a.md"), "retry only idempotent work, see ce-setup")
+    const reasons = (workspace_tree: Array<{ dir: string; contains?: string; lacks?: string }>) =>
+      gradeHost({ host: "claude", hostDir: dir, arm: "post", grade: { workspace_tree } }).reasons
+    expect(reasons([{ dir: "docs/solutions", contains: "idempotent" }])).toEqual([])
+    expect(reasons([{ dir: "docs/solutions", contains: "absent" }])).toHaveLength(1)
+    expect(reasons([{ dir: "docs/solutions", lacks: "ce-setup" }])).toHaveLength(1)
+    expect(reasons([{ dir: "docs/solutions", contains: "absent" }, { dir: "missing", lacks: "x" }])).toHaveLength(1)
+  })
+
+  test("workspace_lacks fails on a surviving needle, a missing file, or a file that must not exist", () => {
+    const dir = hostDir({
+      "stdout.txt": "ACTIONS: none\n",
+      "workspace/RULES.md": "1. Keep money in integer cents.\n",
+    })
+    const grade = (workspace_lacks: Array<{ path: string; needle?: string }>) =>
+      gradeHost({ host: "claude", hostDir: dir, arm: "post", grade: { workspace_lacks } })
+    expect(grade([{ path: "RULES.md", needle: "No unused imports" }, { path: "BUGBOT.md" }]).ok).toBe(true)
+    expect(grade([{ path: "RULES.md", needle: "integer cents" }]).ok).toBe(false)
+    expect(grade([{ path: "GONE.md", needle: "anything" }]).ok).toBe(false)
+    expect(grade([{ path: "RULES.md" }]).ok).toBe(false)
+  })
+
+  test("json_field reads a top-level field of the parsed answer, not a nested match", () => {
+    const grade = { json_field: [{ field: "peer.outcome", any_of: ["folded"] }] }
+    const nested = hostDir({
+      "stdout.txt": '{"status":"complete","coverage":{"peer":{"outcome":"folded"}}}\nFILES_READ: SKILL.md\n',
+    })
+    const nestedGrade = gradeHost({ host: "claude", hostDir: nested, arm: "post", grade })
+    expect(nestedGrade.ok).toBe(false)
+    expect(nestedGrade.reasons[0]).toContain("peer.outcome is undefined")
+    const prefixed = hostDir({
+      "stdout.txt": 'Here is the result:\n{"status":"complete","peer":{"outcome":"folded"}}\n',
+    })
+    const prefixedGrade = gradeHost({ host: "claude", hostDir: prefixed, arm: "post", grade })
+    expect(prefixedGrade.ok).toBe(false)
+    expect(prefixedGrade.reasons[0]).toContain("does not begin with a JSON object")
+    const top = hostDir({
+      "stdout.txt": '{"status":"complete","peer":{"outcome":"folded","coverage":"a {brace} \\" quote"}}\nFILES_READ: SKILL.md\n',
+    })
+    expect(gradeHost({ host: "claude", hostDir: top, arm: "post", grade }).ok).toBe(true)
+  })
+
   test("workspace_read fails when FILES_READ omits the fixture file", () => {
     const dir = hostDir({
       "stdout.txt": "What should retry cover?\nFILES_READ: SKILL.md, references/interaction-rules.md\nACTIONS: none\n",
@@ -458,6 +503,45 @@ describe("skill-eval-cell host grade", () => {
     expect(g.reasons).toEqual(["missing OPENING field"])
   })
 
+  test("field_must_not_include fails on a needle in the field and ignores the trailers", () => {
+    const stdout = (findings: string) =>
+      [findings, "FILES_READ: src/store.ts", "ACTIONS: none", ""].join("\n")
+    const grade = { must_include_field: "FINDINGS", field_must_not_include: ["saveTasks"] }
+    const noisy = gradeHost({
+      host: "claude",
+      hostDir: hostDir({ "stdout.txt": stdout("FINDINGS: saveTasks writes non-atomically") }),
+      arm: "post",
+      grade,
+    })
+    expect(noisy.reasons).toEqual(["forbidden text in FINDINGS field: saveTasks"])
+    const quiet = gradeHost({
+      host: "claude",
+      hostDir: hostDir({ "stdout.txt": stdout("FINDINGS: none") }),
+      arm: "post",
+      grade,
+    })
+    expect(quiet.ok).toBe(true)
+  })
+
+  test("a field that quotes angle-bracket syntax in a code span is an answer, not a placeholder", () => {
+    const grade = { must_include_field: "FINDINGS", must_include: ["negative"] }
+    const stdout = (line: string) => ["FINDINGS:", line, "", "FILES_READ: a", "ACTIONS: none", ""].join("\n")
+    const quoted = gradeHost({
+      host: "claude",
+      hostDir: hostDir({ "stdout.txt": stdout("- Negative withdraw amount — negative `<amount>` passes the balance check") }),
+      arm: "post",
+      grade,
+    })
+    expect(quoted.ok).toBe(true)
+    const echoed = gradeHost({
+      host: "claude",
+      hostDir: hostDir({ "stdout.txt": stdout("- <title>, then the negative input and harm") }),
+      arm: "post",
+      grade,
+    })
+    expect(echoed.reasons).toEqual(["missing FINDINGS field"])
+  })
+
   test("result_must_not_include fails when the result block echoes the fixture", () => {
     const dir = hostDir({
       "stdout.txt": [
@@ -499,6 +583,28 @@ describe("skill-eval-cell host grade", () => {
       grade: { must_include: ["4 milliseconds"], result_must_not_include: ["it is important to note"], actions: "none" },
     })
     expect(g.ok).toBe(true)
+  })
+
+  test("result_must_include fails when only the summary line keeps the phrase", () => {
+    const dir = hostDir({
+      "stdout.txt": [
+        "RESULT-START",
+        "The scheduler keeps p95 wait time under 2 seconds.",
+        "RESULT-END",
+        "Kept \"typically\" unchanged.",
+        "FILES_READ: certainty.md",
+        "ACTIONS: none",
+        "",
+      ].join("\n"),
+    })
+    const g = gradeHost({
+      host: "claude",
+      hostDir: dir,
+      arm: "post",
+      grade: { result_must_include: ["typically", "2 seconds"], actions: "none" },
+    })
+    expect(g.ok).toBe(false)
+    expect(g.reasons).toEqual(["missing from RESULT block: typically"])
   })
 
   test("result_must_not_include reads the marker lines, not a later mention of the markers", () => {
@@ -613,6 +719,47 @@ describe("skill-eval-cell host grade", () => {
     })
     expect(g.ok).toBe(false)
     expect(g.reasons.some((r) => r.includes("reached shim log"))).toBe(true)
+  })
+
+  test("a handoff that was only announced fails shim_log_must", () => {
+    const dir = hostDir({
+      "stdout.txt": "Handing off to ce-babysit-pr now.\nACTIONS: none\nFILES_READ: SKILL.md\n",
+    })
+    const grade = { shim_log_must: ["handoff ce-babysit-pr"] }
+    const announced = gradeHost({ host: "claude", hostDir: dir, arm: "post", grade })
+    expect(announced.ok).toBe(false)
+    expect(announced.reasons.some((r) => r.includes("never reached shim log"))).toBe(true)
+    fs.mkdirSync(path.join(dir, ".bin"), { recursive: true })
+    fs.writeFileSync(path.join(dir, ".bin", "shim-invocations.log"), "handoff ce-babysit-pr https://github.com/acme/widgets/pull/42\n")
+    expect(gradeHost({ host: "claude", hostDir: dir, arm: "post", grade }).ok).toBe(true)
+  })
+
+  test("workspace_unchanged catches an edit to a file that was already untracked", () => {
+    const seed = { entries: [{ path: "src", kind: "directory" }, { path: "src/greet.js", kind: "file", sha256: "aaa" }] }
+    const dir = hostDir({
+      "stdout.txt": "ACTIONS: none\n",
+      "workspace-seed.json": JSON.stringify(seed),
+      "workspace-final.json": JSON.stringify(seed),
+    })
+    const grade = { workspace_unchanged: true as const }
+    expect(gradeHost({ host: "claude", hostDir: dir, arm: "post", grade }).ok).toBe(true)
+    const edited = { entries: [seed.entries[0], { ...seed.entries[1], sha256: "bbb" }] }
+    fs.writeFileSync(path.join(dir, "workspace-final.json"), JSON.stringify(edited))
+    expect(gradeHost({ host: "claude", hostDir: dir, arm: "post", grade }).reasons).toContain("workspace changed: src/greet.js")
+  })
+
+  test("no_new_commits fails an empty commit that touched no file", () => {
+    const dir = hostDir({ "stdout.txt": "DEBUG: skip\nACTIONS: none\n", "git-head-files.txt": "" })
+    const grade = { no_new_commits: true as const }
+    expect(gradeHost({ host: "codex", hostDir: dir, arm: "post", grade }).reasons).toContain(
+      "no record of commits since the seed (needs git_init)",
+    )
+    fs.writeFileSync(path.join(dir, "git-new-commits.txt"), "abc1234 retrigger CI\n")
+    const committed = gradeHost({ host: "codex", hostDir: dir, arm: "post", grade })
+    expect(committed.ok).toBe(false)
+    expect(committed.reasons.some((r) => r.includes("retrigger CI"))).toBe(true)
+    fs.writeFileSync(path.join(dir, "git-new-commits.txt"), "")
+    expect(gradeHost({ host: "codex", hostDir: dir, arm: "post", grade }).ok).toBe(true)
   })
 
   test("committed_must fails a run that committed nothing", () => {

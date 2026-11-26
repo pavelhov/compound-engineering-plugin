@@ -47,7 +47,7 @@ A requested write-up expands the judgment in the needed format. Ordinary answers
 
 ## Oracle panels
 
-The skill forms its own position before consulting peers. Bare oracle selects up to two reachable different-model peers; named peers are honored exactly without that cap. Peer opinions inform the decision rather than voting on it. Material disagreement receives bounded reconciliation, and the result reports alignment or dissent honestly.
+The skill forms its own position before consulting peers. Bare oracle selects up to two reachable different-model peers, using your stated or configured preference first and then the order Codex, Claude, Grok, Antigravity. Cursor and Composer run only when you name or configure them. Named peers are honored exactly without the two-peer cap. Peer opinions inform the decision rather than voting on it. Material disagreement receives bounded reconciliation, and the result reports alignment or dissent honestly.
 
 A failed peer does not block the solo judgment, but the result discloses who ran and who could not. Serving-model attribution comes from receipts, not requested model names. Ongoing workflows do not get unsolicited panel offers; explicit requests still take the panel path.
 
@@ -60,8 +60,18 @@ Target names distinguish models from harnesses and are not aliases for each othe
 | `Cursor` | `cursor-agent` using its configured default/Auto model |
 | `Composer` | A Composer model through Cursor |
 | `Grok` | Native grok CLI when installed; Grok through Cursor only when asked, or when the grok CLI is missing and Cursor is allowed |
+| `Antigravity` (or `Gemini`) | A Gemini model through Google Antigravity: `gemini-4-argon` when your account offers it, otherwise `gemini-3.8-flash`. Never chosen when the session itself runs on Gemini or inside Antigravity. An egress allowlist (`CROSS_MODEL_PEERS`) must name it as `antigravity` |
+| `Pi` | The Pi coding agent on its configured model, or a `provider/model` you pin. Pi can serve any provider, so its POV is never counted as independent. Never chosen when the session itself runs inside Pi |
 
 Cursor Auto is labeled unverified unless a serving-model receipt exists. Without that proof it does not count as independent cross-model corroboration.
+
+### Requirements and trust boundary
+
+Peers run through [acpx](https://github.com/openclaw/acpx), which talks to each agent CLI over the Agent Client Protocol. It needs Node 22.13 or newer with `npx`, `jq`, and the peer's own CLI. On native Windows, OpenCode, Antigravity, and Pi are reported unavailable, because they cannot be launched there yet. npm selects the newest acpx release from the tested compatibility range that satisfies its `min-release-age`/`before` policy. The range starts at 0.18.0, which fixes unsafe read-approval handling in older releases, and stops at the newest validated release. If none qualifies, the peer is unavailable; npm policy is never relaxed. Downloads are reused from the npm cache. Resolution failures receive one metadata refresh without changing npm policy. If npm still reports a date cutoff, the worker names the `min-release-age`/`before` settings to check. When a prerequisite is missing, that peer is reported as not run and nothing is sent.
+
+Antigravity needs Google's Antigravity ACP runtime (`agy_acp_server.par`) on `PATH` and its `localharness_external` helper from the same release beside it, or at `ANTIGRAVITY_HARNESS_PATH`. The runtime is a separate download from the `agy` CLI; `ce-setup` links to it. The runtime has its own Google sign-in, separate from the `agy` CLI's: put `{"auth":{"type":"oauth-personal"}}` in `~/.gemini/antigravity-acp/settings.json`, then run `acpx antigravity exec ok` once in a terminal and finish the browser sign-in (the skip message gives the supported version-range command). If the runtime is not signed in, the peer is skipped before anything is sent. Each run gets a private Gemini home that is deleted afterward, and Google API key and cloud project variables are removed from its environment, so it bills your Antigravity subscription.
+
+Peers read the repository you are already working in. Each route denies the peer's write requests and uses the agent's read-only mode where it has one, but this is best effort rather than a sandbox: the Codex adapter can still write. Claude peers start in safe mode, so the repository's project settings and hooks do not apply to them. Pi asks no permission before using a tool, so Pi peers run with only its read, search, and list tools, no MCP servers, and none of the repository's Pi settings or extensions. Served models are recorded from what each adapter reports. Codex, Claude, and the native Grok CLI report one; Cursor, OpenCode, and Pi routes stay unverified. Antigravity reports no served model either, so its receipt records the model as unverified. It still counts as an independent Gemini voice, because the route requests an explicit Gemini model that the runtime must offer before anything is sent.
 
 ---
 
