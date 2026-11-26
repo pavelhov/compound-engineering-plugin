@@ -27,10 +27,12 @@ It does not render verdicts. If you ask whether to adopt a named external candid
 |----------|--------|
 | What does it do? | Collaborative dialogue to clarify scope, pressure-test premises, explore approaches, and write a requirements-only unified plan |
 | When to use it | Vague feature ideas, multiple plausible directions, unclear scope, work in unfamiliar territory, non-software decisions |
-| What it produces | Software: a requirements-only unified plan in `docs/plans/` with a Product Contract and R/A/F/AE IDs. Non-software: chat synthesis, optional save, optional Proof publish, optional handoff to `ce-plan`. Lightweight alignment can skip the doc. |
-| What's next | Software: `ce-plan` (recommended), ship autonomously with `lfg`, pressure-test or prototype, or keep asking. Non-software: create a plan, save the summary, publish to Proof, or stop. |
+| What it produces | Software: a requirements-only unified plan in `docs/plans/` with a Product Contract and R/A/F/AE IDs. Non-software: chat synthesis, optional save, an optional published copy, optional handoff to `ce-plan`. Lightweight alignment can skip the doc. |
+| What's next | Software: `ce-plan` (recommended), ship autonomously with `lfg`, pressure-test or prototype, or keep asking. Non-software: create a plan, save the summary, publish a copy, or stop. |
 
 ---
+
+When a kept prototype informs the requirements, Sources retains its absolute run path, decision capsule, and selected screens or states for later planning. This is optional machine-local evidence: a missing prototype does not block progress, and the requirements govern disagreements. Repository file references remain relative.
 
 ## Example invocations
 
@@ -163,7 +165,7 @@ Skip it when:
 - You do not yet know what to work on → `/ce-ideate`
 - Requirements are already specified (a PRD exists, the issue is detailed) → `/ce-plan`
 - The request is whether to adopt a named external candidate → `/ce-pov`
-- You have a known root cause for a bug → `/ce-debug`
+- You have a bug → `/ce-debug`, or just fix it when the cause is known and the fix is obvious
 - The change is already specified down to the files it touches → just do it, or `/ce-work`
 
 ---
@@ -244,7 +246,7 @@ Not from the Phase 4 menu. Software next steps are `ce-plan` or `lfg` (which pla
 
 ## Model elevation
 
-When you want a specific model for the heavy reasoning step, `ce-brainstorm` can generate approaches on that model instead of your session model. Only approach generation is dispatched, with read access so it can verify its brief; the rest of the skill stays on your session model. Name a model in the prompt (`use fable`, `have opus generate these`), or set `brainstorm_model: <model>` in CE config.
+When you want a specific model for the heavy reasoning step, `ce-brainstorm` can generate approaches on that model instead of your session model. Only approach generation is dispatched, with read access so it can verify its brief; the rest of the skill stays on your session model. Name a model in the prompt (`use fable`, `have opus generate these`), or set `brainstorm_model: <model>` in CE config. `brainstorm_effort: <low|medium|high|xhigh|max>` sets the reasoning effort for approach generation. Unset keeps `high` on the Claude CLI route and the harness default on native dispatch. If the host's subagent tool takes no effort setting, the step still runs natively and the run says the effort was not applied. An unrecognized value is rejected, and the step runs inline instead of dispatching at an effort you did not configure.
 
 This works on any harness. The host serves the chosen model natively where it can, otherwise it invokes the Claude CLI (which must be installed and authenticated), otherwise it runs the step on your session model and says which precondition was unmet.
 

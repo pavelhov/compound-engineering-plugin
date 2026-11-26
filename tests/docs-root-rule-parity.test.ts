@@ -32,12 +32,17 @@ const CONSUMER_FILES: Record<string, string> = {
   // reading this reference. Codex injects only the first 8000 bytes of a SKILL.md,
   // so a body copy is the less reliable of the two homes.
   lfg: "references/plan-brief.md",
+  // ce-commit-push-pr composes <root>/ paths only in explainer archival, which this
+  // reference owns and states the rule immediately before.
+  "ce-commit-push-pr": "references/apply-and-handoff.md",
+  // ce-explain's body points here before any <root>/ path, keeping its why/how short path small.
+  "ce-explain": "references/artifact-root.md",
 }
 const CONSUMER_SKILLS = [
+  "ce-help",
   "ce-bakeoff",
   "ce-setup",
   "ce-compound",
-  "ce-compound-refresh",
   "ce-plan",
   "ce-brainstorm",
   "ce-ideate",

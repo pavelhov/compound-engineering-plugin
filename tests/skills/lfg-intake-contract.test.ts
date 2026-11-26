@@ -38,8 +38,10 @@ describe("lfg work source and routes", () => {
     }
   })
 
-  test("only a verified plan or a fixed debug return is a work source, and nothing is discovered on disk", () => {
-    expect(lfg).toMatch(/only two things qualify/)
+  test("only a verified plan, a one-pass statement, or a fixed debug return is a work source, and nothing is discovered on disk", () => {
+    expect(lfg).toMatch(/only three things qualify/)
+    expect(intake).toContain("One pass, no plan.")
+    expect(workTriage).toContain("a work statement the caller already sized")
     expect(lfg).toMatch(/`fixed` return from `ce-debug`/)
     expect(lfg).toMatch(/Never search the plans directory/)
     // ce-work's blank-invocation discovery exists; lfg must never reach it.
@@ -87,6 +89,8 @@ describe("lfg work source and routes", () => {
     expect(compound).toBeLessThan(ship)
     expect(lfg).toContain("mode:non-interactive")
     expect(reviewFollowup).toContain("## Step 7 — compound before shipping")
+    expect(reviewFollowup).toContain("`Recommended form`")
+    expect(readRepoFile("skills/ce-compound/references/report.md")).toContain("Recommended form:")
   })
 })
 
@@ -113,6 +117,14 @@ describe("ce-debug return-to-caller seam (ce-debug <-> lfg)", () => {
     expect(debugReturn).toMatch(/never pushes and never asks/)
     expect(debugReturn).toMatch(/Branch\*\* rule in Phase 3 applies in full/)
     expect(debugReturn).toContain("mode:pipeline")
+    const projectConventions = debugReturn.indexOf("project's commit message conventions already in context")
+    const recentLog = debugReturn.indexOf("recent log pattern")
+    const conventionalCommits = debugReturn.indexOf("conventional commits")
+    expect(projectConventions).toBeGreaterThan(-1)
+    expect(recentLog).toBeGreaterThan(projectConventions)
+    expect(conventionalCommits).toBeGreaterThan(recentLog)
+    expect(debugReturn).toContain("User override wins.")
+    expect(debugReturn).toContain("conventional commits (`fix: <summary>` for this bug)")
   })
 
   test("both ends name the same statuses and return fields", () => {
@@ -128,6 +140,38 @@ describe("ce-debug return-to-caller seam (ce-debug <-> lfg)", () => {
       expect(debugReturn, `ce-debug must return ${field}`).toMatch(new RegExp('"' + field + '":'))
       expect(debugReturnGate, `lfg must require ${field}`).toMatch(new RegExp("`" + field + "(?:`|:)"))
     }
+    // Edits the calling session made before invoking ce-debug ship with the fix; both
+    // ends must name the field so lfg's offered-scope check can see them.
+    expect(debugReturn).toContain('"caller_edits":')
+    expect(debugReturnGate).toContain("`pre_fix_scope.caller_edits`")
+  })
+
+  test("the always-on signal proposal reaches the user without becoming required or implemented", () => {
+    expect(debugReturn).toContain('"prevention_signal":')
+    expect(debugReturnGate).toContain("does not require `prevention_signal`")
+    expect(debugReturnGate).toMatch(/no step in this run implements it/)
+    expect(debugReturnGate).toMatch(/Step 11, close-out:[^\n]*`prevention_signal`/)
+  })
+
+  // ce-debug can return `fixed` while leaving a sibling site as a needs-human residual
+  // (PR #2080 review); lfg must carry it into the decision set, not drop it with the fix.
+  test("needs-human residuals on a fixed ce-debug return reach the step 10 decision set", () => {
+    expect(readRepoFile("skills/ce-debug/references/fix.md")).toContain("`needs-human` residual beside the fixed status")
+    expect(debugReturnGate).toMatch(/`fixed` return may still carry `needs-human` `residuals`/)
+    expect(shippingTail).toMatch(/Step 10[\s\S]*?`residuals` that `ce-debug`'s `fixed` return carried/)
+  })
+
+  // Five audited lfg/babysit runs (2026-11-08) ended ce-debug with a commit and no return,
+  // and the same-session caller carried on, so the offered-scope check never ran.
+  test("a ce-debug run that ends without its return stops the run like a malformed one", () => {
+    expect(debugReturnGate).toMatch(/ends without emitting its return at all is malformed/)
+  })
+
+  test("an open PR elsewhere ends the defect route without a fix, and the stop shows why", () => {
+    expect(debugReturn).toMatch(/on a branch other than the one you are fixing/)
+    expect(debugReturn).toMatch(/`diagnosed-no-fix`[^\n]*otherwise `summary` does/)
+    // The link lands in `summary`, so the stop must report it.
+    expect(debugReturnGate).toMatch(/stop the run with the return's `summary`, `root_cause`/)
   })
 
   test("the debug gate requires the same evidence facts the ce-work gate requires", () => {
@@ -215,12 +259,19 @@ describe("inline child returns do not end the caller's turn", () => {
     "skills/ce-plan/references/plan-handoff.md": readRepoFile("skills/ce-plan/references/plan-handoff.md"),
     "skills/ce-pov/references/invocation.md": readRepoFile("skills/ce-pov/references/invocation.md"),
     "skills/ce-doc-review/references/synthesis-and-presentation.md": readRepoFile("skills/ce-doc-review/references/synthesis-and-presentation.md"),
+    "skills/ce-simplify-code/SKILL.md": readRepoFile("skills/ce-simplify-code/SKILL.md"),
+    "skills/ce-code-review/references/modes-and-output.md": readRepoFile("skills/ce-code-review/references/modes-and-output.md"),
+    "skills/ce-code-review/references/depth-paths.md": readRepoFile("skills/ce-code-review/references/depth-paths.md"),
+    "skills/ce-code-review/references/finish-input.md": readRepoFile("skills/ce-code-review/references/finish-input.md"),
+    "skills/ce-test-browser/references/pipeline-orchestration.md": readRepoFile("skills/ce-test-browser/references/pipeline-orchestration.md"),
+    "skills/ce-commit-push-pr/references/apply-and-handoff.md": readRepoFile("skills/ce-commit-push-pr/references/apply-and-handoff.md"),
+    "skills/ce-babysit-pr/references/pipeline.md": readRepoFile("skills/ce-babysit-pr/references/pipeline.md"),
   }
 
   test("callee return contracts say the return ends the skill, not the turn", () => {
     for (const [file, body] of Object.entries(calleeReturns)) {
       expect(body, `${file} must not present the return as the final output`).not.toMatch(/as the final output/)
-      expect(body, `${file} must state the return ends the skill, not the turn`).toMatch(/ends this skill, not the turn/)
+      expect(body, `${file} must state the return ends the skill, not the turn`).toMatch(/ends (?:this|the) skill, not the turn/)
     }
   })
 

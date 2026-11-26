@@ -1,6 +1,6 @@
 # Concepts
 
-Shared domain vocabulary for this project — entities, named processes, and status concepts with project-specific meaning. Seeded with core domain vocabulary, then accretes as ce-compound and ce-compound-refresh process learnings; direct edits are fine. Glossary only, not a spec or catch-all.
+Shared domain vocabulary for this project — entities, named processes, and status concepts with project-specific meaning. Seeded with core domain vocabulary, then accretes as ce-compound captures and refreshes learnings; direct edits are fine. Glossary only, not a spec or catch-all.
 
 ## The plugin and its parts
 
@@ -63,11 +63,13 @@ A browser-to-agent event path on an isolated web experience prototype: the explo
 ### Learning
 A documented solution to a past problem — a bug fix, a convention, or a workflow pattern — stored as the unit of compounded knowledge so future work can find and reuse it. Also called a solution doc. Carries structured metadata (category, tags, problem type) for retrieval; its creation date lives in the entry, not the filename.
 
+A refresh that cannot decide what to do with a Learning, and cannot settle it with the user, marks it stale rather than acting on a guess. A stale-marked Learning keeps reaching the work that searches for it, labeled stale with the reason, and is not offered as current guidance until a later refresh settles it and removes the mark.
+
 ### Pattern doc
 Guidance generalized from several Learnings into a broader rule. Higher-leverage than any single incident-level Learning, and higher-risk when stale, because future work treats it as broadly applicable.
 
 ### Compound Pack
-A folder of prescriptive domain knowledge files that planning- and review-stage Skills consume: planning pulls matching rules into a plan as pack-attributed constraints, and review flags work that contradicts them. A repo opts in by declaring each pack in its CE config `packs:` list — a repo-relative path, a home-directory path, or a ref-pinned git URL, installing one, several, or all packs the source publishes. Shaped like Learnings (frontmatter with `applies_when`) but prescriptive rather than retrospective: a pack says what work in its domain must honor, a Learning records what a past problem taught. Not a Skill: a pack is never invoked and its text is quoted as evidence inside other Skills' steps, never executed as instructions. Optional; CE is complete with zero packs.
+A folder of prescriptive domain knowledge files that planning-, execution-, and review-stage Skills consume: planning pulls matching rules into a plan as pack-attributed constraints, execution and debugging match them against the files they change, and review flags work that contradicts them. A repo opts in by declaring each pack in its CE config `packs:` list — a repo-relative path, a home-directory path, or a ref-pinned git URL, installing one, several, or all packs the source publishes. Shaped like Learnings (frontmatter with `applies_when`) but prescriptive rather than retrospective: a pack says what work in its domain must honor, a Learning records what a past problem taught. Not a Skill: a pack is never invoked and its text is quoted as evidence inside other Skills' steps, never executed as instructions. Optional; CE is complete with zero packs.
 
 ### Knowledge track
 One of the two classifications a Learning carries, set by its problem type: the knowledge track holds guidance — conventions, workflow patterns, practices, decisions — while the bug track holds diagnosed defects. The track decides which metadata a Learning must carry and which maintenance checks apply to it; procedure-shaped checks, such as comparing a Learning against the Guidance layer, key on the knowledge track.
@@ -100,7 +102,7 @@ A semantic cost class for a dispatched sub-agent — extraction (cheapest capabl
 When a platform cannot select models per agent, every role runs on the inherited model and cost control falls back to structure: read budgets and output caps.
 
 ### Evidence dossier
-A bulk evidence artifact — verbatim quotes with source pointers, gathered by a cheap scout agent — written to scratch storage instead of returned inline, so the orchestrator carries only a short gist and downstream agents read the full dossier themselves.
+A bulk evidence artifact — verbatim quotes with source pointers, gathered by a cheap retrieval agent such as a grounding scout or research distiller — written to scratch storage instead of returned inline, so the orchestrator carries only a short gist and downstream agents read the full dossier themselves.
 
 ### Outcome spine
 The part of a Skill that must hold without any reference loaded: the result it produces and who consumes it next, the done condition, the safe failure direction, and the facts the agent cannot derive from the repository in front of it. Everything else in the skill is protocol or judgment attached to that spine, and a block that cannot name its spine is restated before it is edited.
@@ -165,7 +167,7 @@ A checkout whose git-ignored inventory already contains what the project's verif
 Ignored state in a warm checkout is large, symlink-heavy, and owned by tooling the controller never ran, so any host-side guarantee about it can only be detection and disclosure, never byte-exact custody.
 
 ### Model identity receipt
-The serving backend's own report of which model actually handled a delegated run, recorded alongside the requested model so the two can disagree visibly. A run's model identity is verified only by such a receipt — never by the request parameters or the model's own text — and outputs without one are labeled as requested-but-unverified; logic that weights cross-model agreement follows the receipt, not the request.
+The serving side's own report — the backend's, or the adapter's that fronts it — of which model actually handled a delegated run, recorded alongside the requested model so the two can disagree visibly. A run's model identity is verified only by such a receipt — never by the request parameters or the model's own text — and outputs without one are labeled as requested-but-unverified; logic that weights cross-model agreement follows the receipt, not the request.
 
 ### Handoff seam
 The point in a calling Skill where completed work triggers a follow-on Skill in the same run — distinct from a Session handoff, which carries continuity to a fresh session. A seam that states only intent ("auto-invoke X") invites the caller's agent to reproduce the callee's mechanics from memory; a hardened seam pins the invocation mechanism (the platform's skill-invocation primitive, so the callee's instructions actually load) and, when the callee runs a stateful protocol, explicitly forbids starting that protocol's mechanics directly. The callee itself must stay model-invokable: an opt-out flag such as `disable-model-invocation` blocks a sibling's invocation on every host, so restraint belongs in the callee's description condition. The callee loads into the caller's context rather than behind a subagent boundary, so anything it "returns" is text the caller writes next; a caller-only channel (a change summary, a receipt) must say when it is produced and where it may not land.
@@ -213,7 +215,7 @@ A single-lens reviewer role that evaluates work from one specific perspective �
 ### Review depth
 The sizing decision a code review makes for itself once scope is resolved and before anything else loads. A named hard-block class, an uncountable file, or executable non-test changes at the full floor run the full multi-agent spine. Below that, consequence decides: a change whose wrong version fails loudly where it is made takes the lite path; one that fails silently elsewhere takes the focused path, or the full spine when the silent boundary is auth, money, or a public contract. A helper-named silent-pass class, such as a CI workflow path, is a floor on the lens rather than on depth: it forbids lite and leaves consequence to decide focused versus full. Callers never classify a review; they may only force the full spine.
 
-The lite path dispatches no Reviewer personas and reviews in the calling context, yet it still checks the change against the repo's own written criteria and still returns the same receipt shape the full spine does. The focused path is lite plus one independent adversarial read (the Cross-model pass, or a single local adversarial reviewer when the peer cannot run), merged in the same context with no finish leaves and no validator. Neither applies a Compound Pack, and their receipts say so, because pack enforcement is open-ended matching that only a persona on the full spine performs.
+The lite path dispatches no Reviewer personas and reviews in the calling context, yet it still checks the change against the repo's own written criteria and still returns the same receipt shape the full spine does. The focused path is lite plus one independent adversarial read (the Cross-model pass, or a single local adversarial reviewer when the peer cannot run), merged in the same context with no finish leaves and no validator. Both check the change in context against the declared Compound Pack rules whose `applies_when` fits it, and their receipts name the rule files matched.
 
 ### Detection condition
 The stated, observable circumstance under which a Reviewer persona check fires — what must be visible in the work under review, not a topic to opine on. When a check carries a canonical framework name from the design or security literature, the name supplies shared vocabulary for the finding while the detection condition alone decides whether the finding exists; a check may also attach an evidence guard, a requirement to quote the occurrences that satisfy the condition before claiming a high Confidence anchor.

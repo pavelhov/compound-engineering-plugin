@@ -139,6 +139,10 @@ function seedTemplate(objectFormat: "sha1" | "sha256"): { repo: string; digest: 
   throw lastError
 }
 
+export function seededTemplateRepo(objectFormat: "sha1" | "sha256" = "sha1"): string | undefined {
+  return seedTemplates.get(objectFormat)?.repo
+}
+
 export function makeRepo(objectFormat: "sha1" | "sha256" = "sha1"): { repo: string; plan: string; digest: string; base: string } {
   const template = seedTemplate(objectFormat)
   const repo = path.join(tmp("ce-work-repo-"), "repo")
@@ -397,7 +401,7 @@ export function fakeDoneJob(
     model_actual: "unverified",
     model_receipt_status: "unverified",
     activity_posture: "incremental",
-    restriction_posture: "adapter-enforced",
+    restriction_posture: "cooperative",
     failure_reason: null,
     raw_log: logPath,
     packet_digest: digest,

@@ -184,6 +184,10 @@ const DESCRIPTION_CHAR_BUDGET = 1024
 const NAME_CHAR_BUDGET = 64
 
 const EXPECTED_USER_INVOKED_SKILLS = new Set([
+  // ce-help: recommends a command and stops. Firing it unasked on a question like
+  // "what next?" would halt work in progress, and a miss costs little because the
+  // agent can still answer from skill descriptions. No skill or pipeline calls it.
+  "ce-help",
   "ce-dogfood",
   "ce-polish",
   "ce-product-pulse",
@@ -193,7 +197,6 @@ const EXPECTED_USER_INVOKED_SKILLS = new Set([
   // it, and model-routing it would let a cheaper request escalate into an
   // expensive measurement program, so it stays user-invoked.
   "ce-retune",
-  "ce-setup",
   "ce-sweep",
   "ce-test-xcode",
   // wtf: answers a user who says they did not follow something. No skill or
@@ -218,6 +221,8 @@ const REQUIRED_MODEL_INVOKED_CALLEES = new Set([
   "ce-prototype",
   "ce-resolve-pr-feedback",
   "ce-riffrec-feedback-analysis",
+  // ce-setup: ce-compound hands standards work to it.
+  "ce-setup",
   "ce-simplify-code",
   "ce-strategy",
   "ce-test-browser",
@@ -370,10 +375,12 @@ const LOCAL_PATH_TOKEN = /^(references|scripts|assets)\/[A-Za-z0-9._/-]+$/
  * is placeholder-free, while a templated remainder (`.../scripts/<name>`)
  * still fails the token shape by construction.
  */
+function unquote(token: string): string {
+  return token.replace(/^["']/, "").replace(/["']$/, "")
+}
+
 function stripShellWrapping(token: string): string {
-  return token
-    .replace(/^["']/, "")
-    .replace(/["']$/, "")
+  return unquote(token)
     .replace(/^\$(?:\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}|[A-Za-z_][A-Za-z0-9_]*)\//, "")
 }
 
@@ -393,12 +400,18 @@ function localPathTokensIn(text: string): string[] {
  * caught even when mentioned only as an executable command.
  */
 function extractLocalPathCodeSpans(markdown: string): Located[] {
+  return codeSpansIn(markdown).flatMap(({ lineNumber, value }) =>
+    localPathTokensIn(value).map((token) => ({ lineNumber, value: token })),
+  )
+}
+
+/** Backtick code-span contents with their line numbers. */
+function codeSpansIn(markdown: string): Located[] {
   const out: Located[] = []
   const spanRegex = /`([^`\n]+)`/g
   let match: RegExpExecArray | null
   while ((match = spanRegex.exec(markdown)) !== null) {
-    const lineNumber = lineNumberAt(markdown, match.index)
-    for (const token of localPathTokensIn(match[1])) out.push({ lineNumber, value: token })
+    out.push({ lineNumber: lineNumberAt(markdown, match.index), value: match[1] })
   }
   return out
 }
@@ -441,6 +454,35 @@ function extractFencedLocalPathTokens(markdown: string): Located[] {
     }
   }
   return out
+}
+
+const BARE_SCRIPT_PATH = /^(?:\.\/)?scripts\/[A-Za-z0-9._/-]+$/
+const SCRIPT_INTERPRETER = /^(?:bash|sh|zsh|python3?|py|node|bun|ruby|perl|"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?)$/
+const SHELL_PREFIX_WORD = /^(?:then|do|else|exec|time|!|[A-Za-z_][A-Za-z0-9_]*=\S*)$/
+
+function bareScriptCallsIn(line: string, includeBareHead: boolean): string[] {
+  const out: string[] = []
+  for (const segment of line.replace(/`/g, " ").split(/;|&&|\|\||\||\$\(|\(/)) {
+    const words = segment.trim().split(/\s+/).filter(Boolean)
+    while (words.length && SHELL_PREFIX_WORD.test(words[0])) words.shift()
+    if (!words.length) continue
+    const head = unquote(words[0])
+    if (includeBareHead && BARE_SCRIPT_PATH.test(head)) out.push(head)
+    if (!SCRIPT_INTERPRETER.test(words[0])) continue
+    const target = words.slice(1).find((word) => !word.startsWith("-"))
+    if (target && BARE_SCRIPT_PATH.test(unquote(target))) out.push(unquote(target))
+  }
+  return out
+}
+
+// A bare `scripts/x` prose span is a Tier 2 pointer the agent resolves, so spans flag only interpreter calls.
+function findUnanchoredScriptCalls(markdown: string): Located[] {
+  const { prose, fencedLines } = partitionFencedCodeBlocks(markdown)
+  const calls = (spans: Located[], includeBareHead: boolean) =>
+    spans.flatMap(({ lineNumber, value }) =>
+      bareScriptCallsIn(value, includeBareHead).map((call) => ({ lineNumber, value: call })),
+    )
+  return [...calls(fencedLines, true), ...calls(codeSpansIn(prose), false)]
 }
 
 function isExternalLinkTarget(target: string): boolean {
@@ -964,6 +1006,22 @@ describe("platform-variable fallback (AGENTS.md 'Platform-Specific Variables in 
       `PLATFORM_VAR_ACKNOWLEDGED entries must correspond to a current non-graceful use — remove stale entries from tests/skill-conventions.test.ts:\n${stale.join("\n")}`,
     ).toEqual([])
   })
+
+  for (const skill of skillDirs) {
+    test(`${skill.relPath} executed bundled scripts are anchored by SKILL_DIR`, () => {
+      const offenders: string[] = []
+      for (const filePath of listMarkdownFiles(skill.absPath)) {
+        const fileRel = path.relative(REPO_ROOT, filePath)
+        for (const { lineNumber, value } of findUnanchoredScriptCalls(readFileSync(filePath, "utf8"))) {
+          offenders.push(`  ${fileRel}:${lineNumber} — ${value}`)
+        }
+      }
+      expect(
+        offenders,
+        `A bundled script the shell executes must be anchored: the Bash tool runs in the user's project, not the skill directory, so a bare \`bash scripts/x.sh\` misses (#764/#811/#898/#943). Set \`SKILL_DIR="<absolute path of the directory containing the SKILL.md you just read>";\` and call \`bash "$SKILL_DIR/scripts/x.sh"\` — see ${AGENTS_MD_REF} "Platform-Specific Variables in Skills". A prose pointer such as \`scripts/x\` with no interpreter is fine.\nOffending calls:\n${offenders.join("\n")}`,
+      ).toEqual([])
+    })
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -1084,6 +1142,45 @@ describe("extractAtIncludeTargets", () => {
     expect(extractAtIncludeTargets("@./references/<topic>.md")).toEqual([])
     expect(extractAtIncludeTargets("@message = Message.find(params[:id])")).toEqual([])
     expect(extractAtIncludeTargets("email user@scripts.example.com")).toEqual([])
+  })
+})
+
+describe("findUnanchoredScriptCalls", () => {
+  test("flags bare interpreter calls and bare command heads in fences", () => {
+    const sample = [
+      "```bash",
+      "bash scripts/check-health --version VERSION",
+      'python3 -I "scripts/extract.py" --out x.json',
+      "./scripts/clean-gone",
+      'OUT=$(scripts/get-pr-comments 12) && "$PY" scripts/run-log.py',
+      "```",
+    ].join("\n")
+    expect(findUnanchoredScriptCalls(sample)).toEqual([
+      { lineNumber: 2, value: "scripts/check-health" },
+      { lineNumber: 3, value: "scripts/extract.py" },
+      { lineNumber: 4, value: "./scripts/clean-gone" },
+      { lineNumber: 5, value: "scripts/get-pr-comments" },
+      { lineNumber: 5, value: "scripts/run-log.py" },
+    ])
+  })
+
+  test("flags interpreter calls in prose code spans", () => {
+    expect(findUnanchoredScriptCalls("Run `bash scripts/x.sh ARG` first.")).toEqual([
+      { lineNumber: 1, value: "scripts/x.sh" },
+    ])
+  })
+
+  test("passes anchored calls and prose pointers", () => {
+    const sample = [
+      'Run `scripts/get-pr-comments` or read [it](scripts/x.sh).',
+      "```bash",
+      'SKILL_DIR="<absolute path of the directory containing the SKILL.md you just read>";',
+      'bash "$SKILL_DIR/scripts/check-health" --version VERSION',
+      '"$PY" "$SKILL_DIR/scripts/pr-snapshot" mark',
+      "cat references/notes.md",
+      "```",
+    ].join("\n")
+    expect(findUnanchoredScriptCalls(sample)).toEqual([])
   })
 })
 

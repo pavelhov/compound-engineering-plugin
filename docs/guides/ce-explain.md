@@ -28,6 +28,8 @@ Plain language is the ordinary path. `diff:` and `since:` select the subject, `a
 
 The skill establishes the question and intended use before researching or creating files. It reuses adequate current evidence and investigates missing or disputed claims.
 
+A plain why or how question about the project that wants an answer back takes a short path. The skill reads the record directly, meaning the commits and pull requests that introduced and later changed the target, or the source and tests. It skips intake and orchestration. Artifacts, named changes, work windows, ideas, and external concepts take the full path.
+
 For **how**, it follows the relevant trigger, state changes, ownership boundaries, and effect. One pass is enough when that trace can name the boundaries. When one pass cannot, the question is split across read-only scouts, one slice each, and the caller reconciles their dossiers against the source. For **why**, it follows decision records, comments, history, PRs, and linked issues within the allowed sources. It does not search every available service by default, and it preserves a calling workflow's opt-in restrictions on team chat.
 
 Code demonstrates behavior, not necessarily the author's motivation. A missing historical reason stays unknown. Historical constraints are checked before being treated as current requirements. When the explanation informs a change, it identifies the relevant constraints and risks without choosing the implementation.
@@ -42,7 +44,7 @@ Standalone HTML remains self-contained and readable offline. Existing metadata r
 
 Teaching exercises are included when requested or when they would help the reader remember and apply the material. They live in a static `Check yourself` section with answers afterward. The run never waits for the reader to answer a quiz.
 
-A local artifact is delivered with a summary and its path. There is no mandatory destination menu. A requested destination uses the available adapter; public ht-ml.app publishing still requires confirmation after its public-publishing warning. If it cannot complete, the local file remains available.
+A local artifact is delivered with a summary and its path. There is no mandatory destination menu. A requested publisher gets a copy; the local file stays the record. The publisher is the one you named, or the host's own artifact tool when there is one. Anything sent to a public host requires confirmation after a public-publishing warning. If publishing cannot complete, the local file remains available.
 
 ## In a workflow
 

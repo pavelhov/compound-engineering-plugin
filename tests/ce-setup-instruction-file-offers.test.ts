@@ -35,19 +35,21 @@ describe("ce-setup instruction-file offers", () => {
     expect(await readRepoFile("AGENTS.md")).toContain(variants["Run automatically"])
   })
 
-  test("both variants state the durable-knowledge bar ce-compound enforces", async () => {
+  // The directive triggers on a session signal and leaves the bar to ce-compound.
+  // A directive that restated the bar made the agent judge eligibility before
+  // invoking, asking only whether a document was needed, and lessons that
+  // belonged in a test or standard went uncaptured.
+  test("both variants trigger on a correction and leave eligibility to ce-compound", async () => {
     const variants = assetVariants(await readRepoFile("skills/ce-setup/assets/compounding-directive.md"))
     for (const text of Object.values(variants)) {
       for (const phrase of [
-        "durable project reasoning",
-        "not readily recoverable from the final code, tests, types, comments, or existing documentation",
-        "recurrence, material risk, or substantial rediscovery",
-        "if the learning document disappeared",
-        "Completion, effort, and diff size alone are not enough",
+        "corrected a wrong belief about how something behaves",
+        "Do not judge whether the lesson deserves a document",
         "tracked, committed knowledge",
       ]) {
         expect(text).toContain(phrase)
       }
+      expect(text).not.toContain("learning document disappeared")
     }
   })
 
@@ -63,8 +65,9 @@ describe("ce-setup instruction-file offers", () => {
     expect(step).toMatch(/git tracks at least one file under the resolved `<root>\/solutions\/`/)
     expect(step).toMatch(/untracked or gitignored directory is not evidence/)
     expect(step).toMatch(/already carries a standing instruction to invoke `ce-compound`/)
+    expect(step).toMatch(/first decide whether the lesson deserves a document, offer to replace it/)
     const skill = await readRepoFile("skills/ce-setup/SKILL.md")
-    expect(skill).toContain("Steps 4-9")
+    expect(skill).toContain("Steps 4-10")
   })
 
   // The chat-register directive is the always-on path for ce-noslop's
@@ -107,5 +110,27 @@ describe("ce-setup instruction-file offers", () => {
     // unrelated or none -> offer
     expect(step).toMatch(/or an unrelated writing rule still gets the offer/)
     expect(step).toMatch(/Offer it whenever this step runs\./)
+  })
+
+  test("Step 10 makes one evidence-backed offer for the review docs", async () => {
+    const fixes = await readRepoFile("skills/ce-setup/references/repo-fixes.md")
+    expect(fixes.split("### Step 10:")[1] ?? "").toContain("references/project-docs.md")
+    const docs = await readRepoFile("skills/ce-setup/references/project-docs.md")
+    expect(docs).toContain("never one question per file")
+    expect(docs).toContain("Never offer a template in place of evidence")
+    expect(docs).toMatch(/Nothing is written until the user approves the drafts/)
+    // The include line alone is what lets Claude Code Review read the standards, so REVIEW.md is never skipped.
+    expect(docs).toMatch(/Draft `REVIEW\.md` whenever setup drafts or keeps a `CODING_STANDARDS\.md`, even when no section has evidence/)
+    // Bugbot reads only its own file and has no include syntax, so without a pointer it never sees the standards.
+    expect(docs).toContain("`.cursor/BUGBOT.md`")
+  })
+
+  test("asking for coding standards routes straight to the whole review-docs set", async () => {
+    const skill = await readRepoFile("skills/ce-setup/SKILL.md")
+    const route = skill.split("## Review Docs")[1]?.split("\n## ")[0] ?? ""
+    expect(route).toContain("references/project-docs.md")
+    expect(route).toMatch(/whole set of files even when the request names one/)
+    const docs = await readRepoFile("skills/ce-setup/references/project-docs.md")
+    expect(docs).toMatch(/that request is the yes: skip the offer/)
   })
 })

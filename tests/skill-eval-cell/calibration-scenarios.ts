@@ -12,10 +12,16 @@ export const CALIBRATION_SCENARIOS: Scenario[] = [
     baseline_ref: "153e605e1622154a0d7da095fceed13edcb68bf7",
     why: "An unchanged document quote must not keep a prior rejection binding after material source changes.",
     pre_contract: "R29 suppression matches section, title and evidence overlap; its changed-context exception describes document edits.",
-    task: `Use ce-doc-review for R29 reconciliation only. Read references/document-intake.md and references/synthesis-and-presentation.md. A fresh review has completed. For each candidate, return RECONCILIATION: A=<suppress|reassess>, B=<suppress|reassess>, and explain whether reassessment grants permission to reverse an existing user decision. Do not dispatch or edit.
+    task: `Use ce-doc-review for R29 reconciliation only. Read references/document-intake.md and references/synthesis-and-presentation.md. A later-round review of the same document has completed. For each candidate, return RECONCILIATION: A=<suppress|reassess>, B=<suppress|reassess>, and explain whether reassessment grants permission to reverse an existing user decision. Do not dispatch or edit.
 
 Both findings match a prior skipped finding's normalized title and section, and repeat its document quote verbatim. A concerned duplicate billing under retries. It was previously rejected because the source never retried. The unchanged plan still says "Send the charge request." Source code has now changed to retry charge requests after timeout, and the reviewer demonstrated two charges when the first request succeeded before timing out. B suggests renaming a clearly defined term for consistency. It was rejected as a preference. Its document, source, requirements, and evidence are unchanged.`,
-    grade: { must_include_field: "RECONCILIATION", must_include: ["A=reassess", "B=suppress"], actions: "none", delegates: "none" },
+    grade: {
+      must_include_field: "RECONCILIATION",
+      must_include: ["A=reassess", "B=suppress"],
+      files_read_post: ["references/later-round-synthesis.md"],
+      actions: "none",
+      delegates: "none",
+    },
   },
   {
     ...base,
@@ -47,7 +53,7 @@ All candidates have confidence 50. A coherence reviewer prefers renaming plan.md
     baseline_ref: "153e605e1622154a0d7da095fceed13edcb68bf7",
     why: "A settled-conflict marker previously forced preference-only feedback back into the primary report.",
     pre_contract: "Synthesis retains preferences against settled decisions as report-only findings even when suppressed by the helper.",
-    task: `Use ce-code-review at Stage 5 settlement reconciliation and admission. Read references/finish-review.md. Resolve only the routing of these completed reviewer candidates; do not dispatch, edit files, or run the full review.
+    task: `Use ce-code-review at Stage 5 settlement reconciliation and admission. Read references/finish-merge.md (references/finish-review.md in skill versions that have no finish-merge.md). Resolve only the routing of these completed reviewer candidates; do not dispatch, edit files, or run the full review.
 
 The discovered plan explicitly states: K1 (session-settled: keep function-based injection, rejected a provider class hierarchy). Account isolation is required: only the owning account can receive a signed download URL. Reviewers verified the implementation calls sign(record.id) without checking accountId against record.accountId.
 

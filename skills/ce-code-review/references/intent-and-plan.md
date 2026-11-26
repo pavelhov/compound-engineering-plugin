@@ -9,6 +9,8 @@ inspect the contents before checking completeness. A Product Contract alone info
 
 An unaddressed requirement or implementation unit is a finding on every depth path, routed by `plan_source`: `explicit` (a `plan:` argument or a PR-body link) yields a P1 finding with `autofix_class: manual` and `owner: downstream-resolver`, which enters the actionable queue; `inferred` (auto-discovered) yields a P3 finding with `autofix_class: advisory` and `owner: human`, which stays in the report only, because an inferred match is a hint, not a contract.
 
+When `plan_group:` names a PR group of a plan that ships as several PRs, this diff builds only that group. Completeness covers that group's units and the requirements they trace to; units in the plan's other groups are out of scope here, not unaddressed. A `plan_group:` label that starts no group heading in the plan is reported in Coverage, and completeness falls back to the whole plan.
+
 The check also runs in reverse. A behavior rule is a decision about what users or callers observe that a product owner would otherwise have made, such as silently dropping a repeated refund request. When the diff introduces a behavior rule that nothing in the plan asks for, that unrequested behavior rule is a finding on every depth path, listed with the requirements completeness results. Route it P3 with `autofix_class: advisory` and `owner: human`, whatever the `plan_source`, and never let it change the verdict. Whether the rule is wanted is the user's call, and a correct diff is no evidence either way. Internal structure, refactors, and handling of inputs a requirement already covers are not behavior rules.
 
 Extract requirements from these shapes, in order:
@@ -44,7 +46,7 @@ Intent: Simplify tax calculation by replacing the multi-tier rate lookup
 with a flat-rate computation. Must not regress edge cases in tax-exempt handling.
 ```
 
-Pass this to every reviewer in their spawn prompt. Intent shapes *how hard each reviewer looks*, not which reviewers are selected. Keep any `session-settled:` annotations (from a plan or the conversation) out of this summary. Reviewers must not see settlement annotations (Stage 2b, Plan discovery).
+Pass this to every reviewer in their spawn prompt. Intent shapes *how hard each reviewer looks*, not which reviewers are selected. When the user stated a limit on what reviewers examine or raise, such as paths to leave out, a concern not to raise, or a focus to keep to, add it to this summary in the user's words, even when the user gave a decision as the reason. A spawned reviewer knows only what its prompt carries, so a limit left out of the summary does not exist for it. Keep any `session-settled:` annotations (from a plan or the conversation) out of this summary. Reviewers must not see settlement annotations (Stage 2b, Plan discovery).
 
 **When intent is ambiguous:** Infer from branch name, commits, PR title/body, diff, `plan:`, and conversation. Write the best-effort intent summary and note uncertainty in Coverage — never block on a clarifying question.
 

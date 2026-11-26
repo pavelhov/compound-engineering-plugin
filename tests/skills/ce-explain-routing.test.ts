@@ -10,6 +10,7 @@ const destinations = read("references/destinations.md")
 const checkIn = read("references/check-in.md")
 const html = read("references/explainer-html.md")
 const markdown = read("references/explainer-markdown.md")
+const orchestration = read("references/orchestration.md")
 
 function phase(start: string, end?: string): string {
   const from = body.indexOf(start)
@@ -40,31 +41,21 @@ describe("ce-explain consumer contract", () => {
   test("destinations are requested, and their adapter must be read before action", () => {
     expect(phase("### Phase 4")).toMatch(/destination was requested, read `references\/destinations.md` before acting/)
     expect(destinations).toMatch(/Do not require a menu/)
-    for (const adapter of ["Claude Artifact", "Publish publicly to ht-ml.app", "Local file", "Publish to Proof", "Send to Thinkroom"]) {
+    for (const adapter of ["Publish a copy", "Local file"]) {
       expect(destinations).toContain(`## ${adapter}`)
     }
     expect(destinations).toContain("verify the resulting file, URL, or document reference")
     expect(destinations).toContain("Do not substitute another publisher without authorization")
   })
 
-  test("public publication requires informed confirmation for the actual artifact", () => {
-    expect(destinations).toContain("public and may be indexed, crawled, copied, or archived")
-    expect(destinations).toMatch(/explicit confirmation after that warning for the actual artifact/)
-    expect(destinations).toContain("initial request itself does not count as confirmation")
-    expect(destinations).toContain("If the artifact changes materially, obtain confirmation")
-    expect(destinations).toContain("If confirmation cannot be obtained, do not publish")
+  test("the always-loaded body keeps the public-publishing stop class", () => {
     expect(phase("### Phase 4")).toContain("never headless and never inferred")
-    expect(phase("### Phase 4")).toContain("do not publish; preserve the canonical HTML")
+    expect(phase("### Phase 4")).toContain("do not publish; preserve the canonical file")
   })
 
   test("destination adapters execute through their owning capability", () => {
-    expect(destinations).toContain("Give the tool the canonical `$RUN_DIR/explainer.html`")
-    expect(destinations).toContain("tool owns any adaptation needed")
-    expect(destinations).toContain("do not pre-process the HTML")
-    expect(destinations).toContain("skill-invocation primitive")
-    expect(destinations).toContain("https://ht-ml.app/llms.txt")
-    expect(destinations).toContain("Do not assume a particular skill name or installation path")
-    expect(destinations).toContain("Never guess at a Thinkroom API shape")
+    expect(destinations).toContain("Hand a publisher the complete canonical file")
+    expect(destinations).toContain("owns that adaptation; do not pre-process the file")
   })
 
   test("reader adaptation preserves accurate attribution without fixing voice or depth", () => {
@@ -88,7 +79,7 @@ describe("ce-explain preserved regressions", () => {
   })
 
   test("missing diff scopes cannot silently become another subject", () => {
-    const grounding = phase("### Phase 2", "### Phase 3")
+    const grounding = orchestration
     expect(grounding).toContain("**Empty range**")
     expect(grounding).toContain("do not silently explain something else")
     expect(grounding).toContain("request permits it or the user agrees")
@@ -96,7 +87,7 @@ describe("ce-explain preserved regressions", () => {
   })
 
   test("recap evidence is independent of the main agent's initial narrative", () => {
-    const grounding = phase("### Phase 2", "### Phase 3")
+    const grounding = orchestration
     expect(grounding).toContain("Do not pre-scan, count, or characterize the window")
     expect(grounding).toContain("dispatch a generic subagent directly")
     expect(grounding).toContain("harness exposes no subagent primitive")

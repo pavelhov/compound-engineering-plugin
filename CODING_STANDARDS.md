@@ -13,6 +13,12 @@ Review criteria for every change in this repository. `skills/CODING_STANDARDS.md
 - Docs land where their kind lives: guides in `docs/guides/`, plans in `docs/plans/`, solutions in `docs/solutions/` with `module`, `tags`, and `problem_type` frontmatter, target specs in `docs/specs/`. A solution's category reflects the plugin user's view: `developer-experience/` is only for contributing to this repo.
 - The PR title is a conventional commit typed by intent (`fix:` over `feat:` when both fit) with the narrowest useful scope, never `compound-engineering`. A `!` or `BREAKING CHANGE:` marker needs explicit maintainer confirmation.
 
+## acpx compatibility
+
+- Routine ceiling bumps preserve `ACPX_MIN_VERSION`. New acpx-dependent behavior has a real contract exercising its required semantics across every admitted release, including the minimum.
+- A minimum increase identifies the first required release and a demonstrated security or required compatibility need. The PR weighs preserving compatibility or deferring an optional feature, and explains the loss of npm age/date eligibility from the release's publication timestamp. A failing old-version test alone does not justify increasing the floor.
+- Minimum changes agree across mirrored workers, setup warming, the test helper, and affected guides. Neither npm policy nor the security floor is weakened to retain availability.
+
 ## What counts as a finding
 
 File a finding only when all of these hold:
@@ -53,3 +59,9 @@ Applies to `src/`, `scripts/`, and `skills/*/scripts/`.
 - Acknowledgements and externally visible effects happen after the durable commit. Audit and diagnostic writes after the commit are best-effort and never turn success into failure.
 - For each state a script persists, resume handles a crash immediately after that write, including held locks and stale receipts.
 - Code that spawns detached process groups installs INT/TERM/HUP/QUIT handlers before spawning and kills the group on every exit path, including normal completion. Liveness checks go through `tests/helpers/process.ts`, which treats zombies as dead.
+
+## Script text decoding
+
+Applies to Python under `scripts/` and `skills/*/scripts/`.
+
+- A script that reads repository files or git output names its decoding instead of using the locale codec, which is cp1252 on Windows. Git output that carries paths decodes as UTF-8 with `errors="surrogateescape"`, because a path can hold bytes that are not UTF-8 and strict decoding crashes on them. A decoded path that is reused as a `cwd` or argument has to round-trip to the same bytes.

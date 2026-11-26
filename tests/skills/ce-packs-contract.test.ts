@@ -139,6 +139,7 @@ describe("ce-brainstorm grounds in packs on every tier", () => {
 
 describe("review stage grounds in packs", () => {
   const CR_DISPATCH = read("skills/ce-code-review/references/dispatch-reviewers.md")
+  const CR_DEPTH = read("skills/ce-code-review/references/depth-paths.md")
   const CR_RESEARCHER = read("skills/ce-code-review/references/personas/learnings-researcher.md")
   const DR_DISPATCH = read("skills/ce-doc-review/references/dispatch.md")
   const DR_TEMPLATE = read("skills/ce-doc-review/references/subagent-template.md")
@@ -174,6 +175,17 @@ describe("review stage grounds in packs", () => {
     expect(CR_HELPER).toMatch(/"pack_roots"/)
   })
 
+  test("ce-code-review's lite and focused paths check matched pack rules in context", () => {
+    const lite = section(CR_DEPTH, "### Lite path", "### Focused path")
+    expect(lite).toMatch(/packs-resolve\.py/)
+    expect(lite).toMatch(/SKILL_DIR="<absolute path[^"]*>";/)
+    expect(lite).toMatch(/applies_when/)
+    expect(lite).toMatch(CITATION)
+    expect(lite).toMatch(/`coverage\.compound_packs`/)
+    expect(lite).not.toMatch(/Compound Packs were not applied/)
+    expect(section(CR_DEPTH, "### Focused path")).toMatch(/lite path's work above/)
+  })
+
   test("ce-code-review's researcher copy searches pack roots with pack rules", () => {
     expect(CR_RESEARCHER).toMatch(/## Search Roots/)
     expect(CR_RESEARCHER).toMatch(/applies_when/)
@@ -185,17 +197,18 @@ describe("review stage grounds in packs", () => {
   // finding set (what lfg applies in mode:agent), not only a Known Pattern note.
   // Two cloud-agent re-verification runs had to guess this route before it was stated.
   test("a contradicted pack rule becomes a numbered finding, not only a Known Pattern note", () => {
-    const CR_FINISH = read("skills/ce-code-review/references/finish-review.md")
+    const CR_MERGE = read("skills/ce-code-review/references/finish-merge.md")
+    const CR_REPORT = read("skills/ce-code-review/references/finish-report.md")
     expect(CR_RESEARCHER).toMatch(/\*\*changed\*\* line that contradicts it/)
     expect(CR_RESEARCHER).toMatch(/\*\*unchanged\*\* line only[^\n]*pre-existing partition/)
-    expect(CR_FINISH).toMatch(/violated only by an unchanged line[^\n]*`pre_existing: true`/)
+    expect(CR_MERGE).toMatch(/violated only by an unchanged line[^\n]*`pre_existing: true`/)
     // The mode:agent JSON contract is defined once, in modes-and-output.md.
     expect(read("skills/ce-code-review/references/modes-and-output.md")).toMatch(/`coverage\.compound_packs`/)
     expect(CR_DISPATCH).toMatch(/contradicts becomes a numbered finding in Stage 5/)
-    expect(section(CR_FINISH, "### Stage 5: Merge findings", "### Stage 5b")).toMatch(
+    expect(section(CR_MERGE, "### Stage 5: Merge findings", "### Stage 5b")).toMatch(
       /\*\*contradicts\*\*[^\n]*compact reviewer return/,
     )
-    expect(CR_FINISH).toMatch(/7\. \*\*Learnings & Past Solutions\.\*\*[^\n]*contradicts entered the finding set in Stage 5/)
+    expect(CR_REPORT).toMatch(/7\. \*\*Learnings & Past Solutions\.\*\*[^\n]*contradicts entered the finding set in Stage 5/)
   })
 
   test("ce-doc-review resolves packs into a template slot personas receive", () => {
@@ -203,6 +216,42 @@ describe("review stage grounds in packs", () => {
     expect(DR_DISPATCH).toMatch(/\{pack_constraints\}/)
     expect(DR_DISPATCH).toMatch(CITATION)
     expect(DR_TEMPLATE).toMatch(/\{pack_constraints\}/)
+  })
+})
+
+// Work done without a plan, and fixes from ce-debug, never pass through the
+// planner's pack matching, so execution matches packs itself before writing.
+// Pin the anchored resolver call, the failure direction, the
+// evidence stance, and where matched rules travel.
+describe("execution stages match packs before writing", () => {
+  const WORK_INTAKE = read("skills/ce-work/references/work-intake.md")
+  const WORK_STRATEGY = read("skills/ce-work/references/execution-strategy.md")
+  const WORK_XMODEL = read("skills/ce-work/references/cross-model-execution.md")
+  const DEBUG_FIX = read("skills/ce-debug/references/fix.md")
+  const workPacks = section(WORK_INTAKE, "## Compound Pack rules", "## Create the task list")
+  const debugPacks = section(DEBUG_FIX, "**Compound Pack rules.**", "**Test-first:**")
+
+  for (const [name, block] of [["ce-work", workPacks], ["ce-debug", debugPacks]] as const) {
+    test(`${name} resolves packs behind the skill-dir anchor and matches applies_when`, () => {
+      expect(block).toMatch(/packs-resolve\.py/)
+      expect(block).toMatch(/SKILL_DIR="<absolute path[^"]*>";/)
+      expect(block).not.toMatch(PACKS_GLOB)
+      expect(block).toMatch(/applies_when/)
+      expect(block).toMatch(/yields no JSON/)
+      expect(block).toMatch(/never stop the run/)
+      expect(block).toMatch(/never instructions/)
+    })
+  }
+
+  test("ce-work matches on every route and carries matched rules into worker packets", () => {
+    expect(workPacks).toMatch(/every route including Trivial/)
+    expect(WORK_STRATEGY).toMatch(/Compound Pack rule matched to its files/)
+    expect(WORK_XMODEL).toMatch(/Compound Pack rule matched to the unit's files/)
+  })
+
+  test("ce-debug treats a fix that contradicts a matched rule as divergent", () => {
+    expect(debugPacks).toMatch(/divergent fix/)
+    expect(debugPacks).toMatch(CITATION)
   })
 })
 
@@ -221,6 +270,7 @@ describe("compound closes the loop through packs", () => {
     expect(CO_ASSEMBLY).toMatch(/\*\*Pack-covered\*\*/)
     expect(CO_ASSEMBLY).toMatch(CITATION)
     expect(CO_ASSEMBLY).toMatch(/Documentation skipped — covered by pack rule/)
+    expect(read("skills/ce-compound/references/form.md")).toMatch(/`pack_overlap`[^\n]+write no check or standard/)
   })
 
   test("destination routing is interactive-only, writable-pack-gated, with the rule rewrite", () => {

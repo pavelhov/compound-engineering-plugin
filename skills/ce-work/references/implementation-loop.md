@@ -31,7 +31,7 @@ When a unit carries an `Execution note`, honor its intent rather than matching a
 
 Guardrails for execution evidence:
 - Do not write the test and implementation in the same step when working proof-first
-- Do not skip verifying that a new or changed test fails for the expected reason before implementing the fix or feature
+- Do not skip verifying that a new or changed test fails for the expected reason before implementing the fix or feature. When the behavior rests on more than one guard, also confirm after implementing that the test fails when each guard alone is removed, restoring each one afterward
 - Do not over-implement beyond the current behavior slice when working proof-first
 - Do not add a duplicate regression test when an existing test is the right home; update or strengthen that test instead, then observe the failure before changing code
 - A new or changed test must fail when the behavior it names breaks, and keep passing when only the implementation changes. It fails that bar when its expected value comes from the code under test, when a mock or fixture supplies the result the code should produce, or when it asserts calls between internal parts instead of what the code returns, stores, or sends across its boundary
@@ -64,7 +64,7 @@ If the plan has Implementation Units, use them as a starting guide for commit bo
 
 Preserve the full resolved message as data through the selected engine's canonical commit owner. If that owner cannot accept the full message, stop and report the blocker rather than truncate it or bypass the owner's protocol. Cross-model commits follow the controller integration contract in `references/cross-model-execution.md`.
 
-For native host-owned Git commits, write the full resolved message to a file outside the repo with your file-write tool. Pass that file to Git so the shell never interprets message text.
+For native host-owned Git commits, pass the full resolved message to Git on stdin, as below, so the shell never interprets message text.
 
 **Native Git commit workflow:**
 ```bash
@@ -75,7 +75,18 @@ For native host-owned Git commits, write the full resolved message to a file out
 git add <files related to this logical unit>
 
 # 3. Commit with the resolved message, limited to those same paths
-git commit -F <message-file> -- <files related to this logical unit>
+git commit -F - -- <files related to this logical unit> <<'CE_COMMIT_MESSAGE_END'
+<resolved message>
+CE_COMMIT_MESSAGE_END
+```
+
+Under PowerShell:
+
+```powershell
+$OutputEncoding = [Console]::InputEncoding = [Text.UTF8Encoding]::new()
+@'
+<resolved message>
+'@ | git commit -F - -- <files related to this logical unit>
 ```
 
 **Note:** Incremental commits add no plugin-generated attribution. The final Phase 4 handoff passes `branding:on` so `ce-commit-push-pr` can add generic Compound Engineering branding to the PR.
@@ -88,19 +99,22 @@ After completing a cluster of related implementation units (or every 2-3 units),
 
 Don't simplify after every single unit — early patterns may look duplicated but diverge intentionally in later units. Wait for a natural phase boundary or when you notice accumulated complexity.
 
-If **`ce-simplify-code`** is available, invoke it at phase boundaries (especially before Phase 3 when the accumulated cluster has >=30 substantive changed code lines — count human-authored code, not total diff lines, so a mostly test-fixture/config/generated/mechanical cluster does not trigger the check). Otherwise, review the changed files yourself for reuse and consolidation opportunities.
+If **`ce-simplify-code`** is available, invoke it with `mode:pipeline` at phase boundaries (especially before Phase 3 when the accumulated cluster has >=30 substantive changed code lines — count human-authored code, not total diff lines, so a mostly test-fixture/config/generated/mechanical cluster does not trigger the check). Otherwise, review the changed files yourself for reuse and consolidation opportunities. When invoking it, pass each test the evidence record names as proving the work (a red-before-fix test, characterization coverage, or an existing test used unchanged) as `proof-test:<path>`, so the simplification leaves that test untouched.
 
 When the plan carries `session-settled:`-labeled KTDs or Key Decisions, pass the plan path as context for which structures must stay as they are, not as the simplification scope, with the one-line constraint that labeled entries are settled decisions the simplification must preserve (e.g., deliberate duplication stays duplicated).
+
+In return-to-caller mode, commit the pass's edits once its checks pass, then record that commit's SHA (HEAD when the pass changed nothing) as `simplified_through`. The caller's own simplify step then covers only what came after it. A later pass replaces the recorded SHA. Reviewing the files yourself records nothing.
 
 4. **UI Verification** (if applicable)
 
 For UI work built from a Figma design, read `references/agents/figma-design-sync.md` and dispatch a generic subagent seeded with that local prompt to compare the implementation against the design. Do not dispatch a standalone agent by type/name. Apply the reported fixes that hold up against the project's conventions, then compare again until it reports a match or only differences you judge intentional.
 
-For other user-visible UI changes, check the changed UI in a browser at desktop and mobile widths when browser tooling is available. If none is available, review the layout code for overflow and responsive breakage and record that browser verification was unavailable. Phase 4's screenshot capture still applies when the change is user-visible.
+For other user-visible UI changes, check the changed UI in a browser at desktop and mobile widths when browser tooling is available. If none is available, review the layout code for overflow and responsive breakage and record that browser verification was unavailable.
 
 5. **Track Progress**
 - Add a task when requested work turns out larger than expected; a mechanism nobody asked for goes through **Build what was asked** first
 - When the plan defines U-IDs for Implementation Units, or the plan or origin document carries stable R-IDs (and optionally A/F/AE IDs), reference them in blockers, deferred-work notes, task summaries, and final verification — not routine status updates. U-IDs anchor units across plan edits; R/A/F/AE anchor product intent across the brainstorm-plan handoff. Use the IDs the plan supplies and do not invent ones it does not. This preserves traceability without burying signal under noise.
+- **Plan IDs stay out of written files.** U-, R-, A-, F-, AE-, and KTD-IDs mean something only to a reader who has the plan open. Keep them out of the files the work writes, including code, comments, docs, scripts, and skills. Where an ID would go, write what the requirement or decision says instead: `# allowlist read-only tools`, not `# (R7)`.
 
 ## Settled decisions during implementation
 

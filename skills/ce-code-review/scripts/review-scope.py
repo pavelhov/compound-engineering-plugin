@@ -42,7 +42,6 @@ SIGNAL_PATTERNS = {
         r"/(routes?|controllers?|api|serializers?|graphql)/|\.proto$|openapi|swagger",
         re.I,
     ),
-    "swift-ios": re.compile(r"\.(swift|kt|pbxproj|xcconfig|entitlements)$", re.I),
 }
 
 # Classes the script can name from paths alone. These force full; they do not
@@ -51,10 +50,8 @@ HARD_BLOCK_PATTERNS = {
     "migrations": SIGNAL_PATTERNS["migrations"],
 }
 
-# Silent-pass guards the script can name from paths alone. These forbid lite
-# (the change needs the adversarial read the focused path carries) but do not
-# force full; consequence still decides focused versus full. Silent-pass guards
-# outside these paths are the agent's question.
+# Potential silent-pass guards identified by path. The agent assesses what
+# they protect; these signals do not force a depth or select a reviewer.
 SILENT_PASS_PATTERNS = {
     "ci": re.compile(
         r"(^|/)\.github/workflows/|(^|/)\.gitlab-ci\.yml$|(^|/)\.gitlab-ci/"
@@ -65,6 +62,8 @@ SILENT_PASS_PATTERNS = {
 
 # Executable non-test changed lines at or above this run the full spine; it
 # matches the maintainability reviewer's trigger. Below it, consequence decides.
+# Whole-file deletions never count toward it; their separate band is an
+# inspection cue, not a depth floor.
 FULL_EXEC_LINE_MIN = 200
 
 # Conventions recognized: tests?/spec/__tests__ directories; a .test./.spec.
@@ -86,8 +85,13 @@ AGENT_SURFACE_PATTERN = re.compile(
 
 
 def git(*args: str) -> subprocess.CompletedProcess[str]:
+    # surrogateescape keeps paths holding non-UTF-8 bytes (Latin-1 filesystems) from crashing the decode.
     return subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=False
+        ["git", *args],
+        capture_output=True,
+        encoding="utf-8",
+        errors="surrogateescape",
+        check=False,
     )
 
 
@@ -133,9 +137,13 @@ def repo_root() -> Path:
     works there), where ``Path.cwd()`` would join docs_root under the subdir and
     wrongly report the corpus absent. Fall back to cwd when git can't answer.
     """
-    result = git("rev-parse", "--show-toplevel")
-    if result.returncode == 0 and result.stdout.strip():
-        return Path(result.stdout.strip()).resolve()
+    # fsdecode, not git()'s UTF-8: the toplevel is reused as a filesystem path and must round-trip to its bytes.
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], capture_output=True, check=False
+    )
+    toplevel = os.fsdecode(result.stdout.strip())
+    if result.returncode == 0 and toplevel:
+        return Path(toplevel).resolve()
     return Path.cwd().resolve()
 
 
@@ -232,6 +240,9 @@ def fail_closed(reason: str, signals: dict[str, object]) -> dict[str, object]:
         "hard_block_full": True,
         "silent_pass_classes": [],
         "size_band": "unknown",
+        "deleted_files": [],
+        "deleted_exec_nontest_lines": None,
+        "deleted_band": "unknown",
         "test_files_changed": False,
         "agent_surface": False,
         **signals,
@@ -247,6 +258,14 @@ def size_band_for(exec_nontest_lines: int | None) -> str:
     if exec_nontest_lines is None:
         return "unknown"
     if exec_nontest_lines >= FULL_EXEC_LINE_MIN:
+        return "large"
+    return "small"
+
+
+def deleted_band_for(deleted_files: list[str], deleted_exec_nontest_lines: int) -> str:
+    if not deleted_files:
+        return "none"
+    if deleted_exec_nontest_lines >= FULL_EXEC_LINE_MIN:
         return "large"
     return "small"
 
@@ -302,13 +321,15 @@ def main() -> int:
             return 0
         diff_args = [merge_base, args.head]
 
-    numstat = git("diff", "--numstat", *diff_args)
-    raw = git("diff", "--raw", *diff_args)
+    # Unquoted non-ASCII paths keep extension checks and manifest paths usable.
+    numstat = git("-c", "core.quotePath=false", "diff", "--numstat", *diff_args)
+    raw = git("-c", "core.quotePath=false", "diff", "--raw", *diff_args)
     if numstat.returncode != 0 or raw.returncode != 0:
         print(json.dumps(fail_closed("git diff failed", repo), sort_keys=True))
         return 0
 
     executable_mode_paths: set[str] = set()
+    deleted_paths: set[str] = set()
     for line in raw.stdout.splitlines():
         if "\t" not in line:
             continue
@@ -316,6 +337,8 @@ def main() -> int:
         fields = meta.lstrip(":").split(" ")
         if len(fields) < 2:
             continue
+        if fields[-1] == "D":
+            deleted_paths.add(path_field)
         old_mode, new_mode = fields[0], fields[1]
         mode = old_mode if new_mode == "000000" else new_mode
         if not mode.endswith("755"):
@@ -329,6 +352,8 @@ def main() -> int:
     unclassified_lines: dict[str, int] = {}
     changed_lines = 0
     uncounted = 0
+    deleted_files: list[str] = []
+    deleted_exec_nontest_lines = 0
     for line in numstat.stdout.splitlines():
         parts = line.split("\t")
         if len(parts) < 3:
@@ -336,6 +361,16 @@ def main() -> int:
         added, deleted, name = parts[0], parts[1], parts[2]
         resolved_name = numstat_path(name)
         files.append(resolved_name)
+        ext = Path(resolved_name).suffix.lower()
+        is_exec = ext in CODE_EXTENSIONS or resolved_name in executable_mode_paths
+        is_test = bool(TEST_PATTERN.search(resolved_name))
+        if resolved_name in deleted_paths:
+            deleted_files.append(resolved_name)
+            if deleted.isdigit():
+                changed_lines += int(deleted)
+                if is_exec and not is_test:
+                    deleted_exec_nontest_lines += int(deleted)
+            continue
         if added == "-" or deleted == "-":
             uncounted += 1
             continue
@@ -345,18 +380,15 @@ def main() -> int:
             uncounted += 1
             continue
         changed_lines += total
-        if (
-            Path(resolved_name).suffix.lower() in CODE_EXTENSIONS
-            or resolved_name in executable_mode_paths
-        ):
+        if is_exec:
             executable_lines += total
-            if not TEST_PATTERN.search(resolved_name):
+            if not is_test:
                 executable_nontest_lines += total
-        elif not TEST_PATTERN.search(resolved_name):
-            ext = Path(resolved_name).suffix.lower()
+        elif not is_test:
             unclassified_lines[ext] = unclassified_lines.get(ext, 0) + total
 
     files.sort()
+    deleted_files.sort()
     signals = matching_classes(files, SIGNAL_PATTERNS)
     hard_block_classes = matching_classes(files, HARD_BLOCK_PATTERNS)
     silent_pass_classes = matching_classes(files, SILENT_PASS_PATTERNS)
@@ -378,6 +410,9 @@ def main() -> int:
         "hard_block_full": bool(hard_block_classes) or band != "small",
         "silent_pass_classes": silent_pass_classes,
         "size_band": band,
+        "deleted_files": deleted_files,
+        "deleted_exec_nontest_lines": deleted_exec_nontest_lines,
+        "deleted_band": deleted_band_for(deleted_files, deleted_exec_nontest_lines),
         "test_files_changed": any(TEST_PATTERN.search(file) for file in files),
         "agent_surface": any(AGENT_SURFACE_PATTERN.search(file) for file in files),
         **repo,

@@ -155,13 +155,27 @@ Record the validation outcome (command run, pass/fail counts, any pre-existing f
 
 ## 6. Commit and Publication
 
-Commit only the change set, preserving unrelated work in the tree and index, with a message referencing the PR:
+Commit only the change set, preserving unrelated work in the tree and index, with a message referencing the PR, on stdin:
 
 ```bash
 git add [files in the change set]
-git commit -m "Address PR review feedback (#PR_NUMBER)
+git commit -F - -- [files in the change set] <<'CE_COMMIT_MESSAGE_END'
+Address PR review feedback (#PR_NUMBER)
 
-- [list changes from per-item results]" -- [files in the change set]
+- [list changes from per-item results]
+CE_COMMIT_MESSAGE_END
+```
+
+Under PowerShell:
+
+```powershell
+$OutputEncoding = [Console]::InputEncoding = [Text.UTF8Encoding]::new()
+git add [files in the change set]
+@'
+Address PR review feedback (#PR_NUMBER)
+
+- [list changes from per-item results]
+'@ | git commit -F - -- [files in the change set]
 ```
 
 In `mode:return-to-caller`, capture the combined fix commit SHA and follow [references/return-to-caller.md](return-to-caller.md) to save every judged action and intended checklist tick. Return after saving; do not push or enter steps 7-8 for any part of this batch. A failed commit or save reports the actual local state and incomplete handoff, never completion.
@@ -170,6 +184,8 @@ Ordinary and pipeline execution publish the commit before the remote tail:
 ```bash
 git push
 ```
+
+Read the PR's state immediately before pushing. If it is no longer open, a merge or close happened while this batch ran: do not push, and report the fix as an unpublished local commit along with the items left unaddressed.
 
 ## 7. Reply and Resolve
 
@@ -297,9 +313,10 @@ Fixed (count): [brief description of each fix]
 Fixed differently (count): [what was changed and why the approach differed]
 Replied (count): [what questions were answered]
 Not addressing (count): [what was skipped and the evidence]
-Declined (count): [what was declined and the harm cited]
+Declined (count): [what was declined and the harm or scope reason cited; name out-of-scope items separately so the user can carry them forward]
 
 Validation: [one line -- e.g., "bun test passed (893/893)" or "bun test passed with pre-existing failure in X noted"; omit when no code changes were committed]
+Diff change: [`git diff --shortstat` from the head before this run's first fix commit to the head after its last, e.g., "+42 / -7 across 3 files"; omit when no code changes were committed]
 ```
 
 If any item is `needs-human`, append a decisions section. These are rare but high-signal. Each carries the `needs-human` object composed in step 3: quoted feedback, investigation, the reason autonomous action is unsafe or ambiguous, concrete options with tradeoffs, a recommendation if any, and links to every still-open thread it covers.
